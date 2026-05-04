@@ -17,12 +17,77 @@ interface SavedState {
   columns: { id: string; folderId: string; folderTitle: string; expandedFolders: string[]; parentChain: { id: string; title: string }[] }[];
 }
 
+interface EmptyFolderModalProps {
+  emptyFolders: { id: string; title: string; path: string }[];
+  onDelete: (ids: string[]) => void;
+  onClose: () => void;
+}
+
+function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolderModalProps) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(emptyFolders.map((f) => f.id)));
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      return newSet;
+    });
+  };
+
+  const handleDelete = () => {
+    const toDelete = emptyFolders.filter((f) => !selected.has(f.id)).map((f) => f.id);
+    onDelete(toDelete);
+  };
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
+        <h2 style={modalStyles.title}>Empty Folders</h2>
+        <p style={modalStyles.subtitle}>Select folders to KEEP (unchecked will be deleted):</p>
+        <div style={modalStyles.list}>
+          {emptyFolders.map((folder) => (
+            <div
+              key={folder.id}
+              style={{
+                ...modalStyles.item,
+                ...(selected.has(folder.id) ? {} : modalStyles.itemExcluded),
+              }}
+              onClick={() => toggleSelect(folder.id)}
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(folder.id)}
+                onChange={() => toggleSelect(folder.id)}
+                style={{ marginRight: "8px" }}
+              />
+              <span>{folder.title}</span>
+              <span style={modalStyles.path}>{folder.path}</span>
+            </div>
+          ))}
+        </div>
+        <div style={modalStyles.actions}>
+          <button onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
+          <button
+            onClick={handleDelete}
+            style={modalStyles.deleteBtn}
+          >
+            Delete Others ({emptyFolders.length - selected.size})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [columns, setColumns] = useState<ColumnData[]>([]);
   const [allFolders, setAllFolders] = useState<{ id: string; title: string; path: string }[]>([]);
   const [undoStack, setUndoStack] = useState<MoveRecord[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dragTargetColumn, setDragTargetColumn] = useState<string | null>(null);
+  const [emptyFolders, setEmptyFolders] = useState<{ id: string; title: string; path: string }[]>([]);
+  const [showEmptyModal, setShowEmptyModal] = useState(false);
 
   useEffect(() => {
     loadBookmarks();
@@ -113,6 +178,32 @@ export default function App() {
     return null;
   }
 
+  function isEmptyFolder(node: BookmarkNode): boolean {
+    if (node.url) return false;
+    if (!node.children || node.children.length === 0) return true;
+    // A folder is empty only if all its children are empty folders (no bookmarks directly in it)
+    const hasDirectBookmarks = node.children.some((child) => child.url);
+    if (hasDirectBookmarks) return false;
+    // Check if all children are empty subfolders
+    return node.children.every((child) => isEmptyFolder(child));
+  }
+
+  function findEmptyFolders(nodes: BookmarkNode[], path = ""): { id: string; title: string; path: string }[] {
+    const result: { id: string; title: string; path: string }[] = [];
+    for (const node of nodes) {
+      if (!node.url && node.id !== "0") {
+        const nodePath = path ? `${path} / ${node.title}` : node.title;
+        if (isEmptyFolder(node)) {
+          result.push({ id: node.id, title: node.title || "(root)", path: nodePath });
+        }
+        if (node.children) {
+          result.push(...findEmptyFolders(node.children, nodePath));
+        }
+      }
+    }
+    return result;
+  }
+
   function loadSavedState(): SavedState | null {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -134,6 +225,25 @@ export default function App() {
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
+
+  const showClearEmptyModal = async () => {
+    const tree = await getTree();
+    const empty = findEmptyFolders(tree);
+    setEmptyFolders(empty);
+    setShowEmptyModal(true);
+  };
+
+  const handleDeleteEmptyFolders = async (ids: string[]) => {
+    try {
+      for (const id of ids) {
+        await chrome.bookmarks.removeTree(id);
+      }
+      setShowEmptyModal(false);
+      loadBookmarks();
+    } catch (err) {
+      console.error("Failed to delete folders:", err);
+    }
+  };
 
   const addColumn = () => {
     const usedFolderIds = new Set(columns.map((c) => c.folderId));
@@ -165,6 +275,21 @@ export default function App() {
     const newColumns = columns.filter((c) => c.id !== columnId);
     setColumns(newColumns);
     saveState(newColumns);
+  };
+
+  const createNewFolder = (columnId: string) => {
+    const column = columns.find((c) => c.id === columnId);
+    if (!column) return;
+
+    const folderName = prompt("Enter folder name:");
+    if (!folderName) return;
+
+    chrome.bookmarks.create(
+      { parentId: column.folderId, title: folderName },
+      () => {
+        loadBookmarks();
+      }
+    );
   };
 
   const changeColumnFolder = (columnId: string, newFolderId: string) => {
@@ -397,6 +522,9 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <h1 style={styles.title}>My Bookmark</h1>
           <button onClick={addColumn} style={styles.addButton}>+ Add Column</button>
+          <button onClick={showClearEmptyModal} style={styles.clearEmptyButton}>
+            Clear Empty
+          </button>
         </div>
         <button
           onClick={handleUndo}
@@ -453,14 +581,23 @@ export default function App() {
                     ))}
                 </select>
               </div>
-              {columns.length > 2 && (
+              <div style={styles.columnActions}>
                 <button
-                  onClick={() => removeColumn(column.id)}
-                  style={styles.removeButton}
+                  onClick={() => createNewFolder(column.id)}
+                  style={styles.newFolderButton}
+                  title="New folder"
                 >
-                  ×
+                  +📁
                 </button>
-              )}
+                {columns.length > 2 && (
+                  <button
+                    onClick={() => removeColumn(column.id)}
+                    style={styles.removeButton}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
 
             <div style={styles.bookmarkTree}>
@@ -478,6 +615,14 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      {showEmptyModal && (
+        <EmptyFolderModal
+          emptyFolders={emptyFolders}
+          onDelete={handleDeleteEmptyFolders}
+          onClose={() => setShowEmptyModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -589,6 +734,100 @@ function TreeView({
   );
 }
 
+const modalStyles: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1000,
+  },
+  modal: {
+    backgroundColor: "#16213e",
+    borderRadius: "8px",
+    padding: "20px",
+    minWidth: "400px",
+    maxWidth: "600px",
+    maxHeight: "80vh",
+    overflow: "auto",
+  },
+  title: {
+    fontSize: "18px",
+    fontWeight: 600,
+    marginBottom: "8px",
+    color: "#eee",
+  },
+  subtitle: {
+    fontSize: "14px",
+    color: "#9ca3af",
+    marginBottom: "16px",
+  },
+  list: {
+    maxHeight: "400px",
+    overflowY: "auto",
+    marginBottom: "16px",
+  },
+  item: {
+    display: "flex",
+    alignItems: "center",
+    padding: "10px",
+    marginBottom: "4px",
+    backgroundColor: "#1a1a2e",
+    borderRadius: "4px",
+    cursor: "pointer",
+  },
+  itemExcluded: {
+    backgroundColor: "#450a0a",
+    textDecoration: "line-through",
+    opacity: 0.7,
+  },
+  itemSelected: {
+    backgroundColor: "#374151",
+  },
+  path: {
+    marginLeft: "8px",
+    fontSize: "12px",
+    color: "#6b7280",
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "8px",
+  },
+  cancelBtn: {
+    padding: "8px 16px",
+    fontSize: "14px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#374151",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  deleteBtn: {
+    padding: "8px 16px",
+    fontSize: "14px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#ef4444",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  deleteBtnDisabled: {
+    backgroundColor: "#374151",
+    cursor: "not-allowed",
+    opacity: 0.6,
+  },
+};
+
 const styles: Record<string, React.CSSProperties> = {
   container: {
     width: "100%",
@@ -617,6 +856,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "6px",
     border: "none",
     backgroundColor: "#10b981",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  clearEmptyButton: {
+    padding: "6px 12px",
+    fontSize: "13px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#f59e0b",
     color: "#fff",
     cursor: "pointer",
   },
@@ -681,12 +929,25 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     gap: "4px",
   },
+  columnActions: {
+    display: "flex",
+    gap: "4px",
+  },
   backButton: {
     padding: "8px 12px",
     fontSize: "14px",
     borderRadius: "4px",
     border: "none",
     backgroundColor: "#374151",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  newFolderButton: {
+    padding: "6px 8px",
+    fontSize: "12px",
+    borderRadius: "4px",
+    border: "none",
+    backgroundColor: "#10b981",
     color: "#fff",
     cursor: "pointer",
   },
