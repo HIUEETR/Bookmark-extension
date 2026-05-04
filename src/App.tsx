@@ -277,7 +277,8 @@ export default function App() {
     saveState(newColumns);
   };
 
-  const createNewFolder = (columnId: string) => {
+  const createNewFolder = (columnId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     const column = columns.find((c) => c.id === columnId);
     if (!column) return;
 
@@ -290,6 +291,38 @@ export default function App() {
         loadBookmarks();
       }
     );
+  };
+
+  const deleteCurrentFolder = (columnId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const column = columns.find((c) => c.id === columnId);
+    if (!column) return;
+
+    const hasContent = column.tree.some((node) => node.url || (node.children && node.children.length > 0));
+
+    if (hasContent) {
+      const confirm1 = confirm("Are you sure you want to delete this folder? All contents will be deleted.\n\nClick OK to continue.");
+      if (!confirm1) return;
+
+      const confirm2 = confirm("This folder contains bookmarks. Are you ABSOLUTELY sure?\n\nClick OK to delete.");
+      if (!confirm2) return;
+
+      const confirm3 = confirm("FINAL WARNING: This action cannot be undone!\n\nClick OK to permanently delete.");
+      if (!confirm3) return;
+    } else {
+      const confirmed = confirm(`Delete folder "${column.folderTitle}"?`);
+      if (!confirmed) return;
+    }
+
+    chrome.bookmarks.removeTree(column.folderId, () => {
+      const parentChain = column.parentChain;
+      if (parentChain.length > 1) {
+        const newParentId = parentChain[parentChain.length - 2].id;
+        changeColumnFolder(columnId, newParentId);
+      } else {
+        loadBookmarks();
+      }
+    });
   };
 
   const changeColumnFolder = (columnId: string, newFolderId: string) => {
@@ -567,27 +600,43 @@ export default function App() {
                     ←
                   </button>
                 )}
-                <select
-                  value={column.folderId}
-                  onChange={(e) => changeColumnFolder(column.id, e.target.value)}
-                  style={styles.folderSelect}
-                >
-                  {allFolders
-                    .filter((f) => !f.path.includes("/"))
-                    .map((folder) => (
-                      <option key={folder.id} value={folder.id}>
-                        {folder.title}
-                      </option>
-                    ))}
-                </select>
+                <span style={styles.folderPath}>
+                  {column.parentChain.map((p, i) => (
+                    <span key={p.id}>
+                      {i > 0 && <span style={styles.pathSeparator}> / </span>}
+                      <span
+                        style={i === column.parentChain.length - 1 ? styles.currentFolder : styles.parentFolder}
+                        onClick={() => changeColumnFolder(column.id, p.id)}
+                        onMouseEnter={(e) => {
+                          if (i < column.parentChain.length - 1) {
+                            (e.target as HTMLSpanElement).style.textDecoration = "underline";
+                            (e.target as HTMLSpanElement).style.cursor = "pointer";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.target as HTMLSpanElement).style.textDecoration = "";
+                        }}
+                      >
+                        {p.title}
+                      </span>
+                    </span>
+                  ))}
+                </span>
               </div>
               <div style={styles.columnActions}>
                 <button
-                  onClick={() => createNewFolder(column.id)}
+                  onClick={(e) => createNewFolder(column.id, e)}
                   style={styles.newFolderButton}
                   title="New folder"
                 >
                   +📁
+                </button>
+                <button
+                  onClick={(e) => deleteCurrentFolder(column.id, e)}
+                  style={styles.deleteFolderButton}
+                  title="Delete folder"
+                >
+                  🗑
                 </button>
                 {columns.length > 2 && (
                   <button
@@ -927,11 +976,31 @@ const styles: Record<string, React.CSSProperties> = {
   columnNav: {
     display: "flex",
     flex: 1,
+    alignItems: "center",
     gap: "4px",
+    overflow: "hidden",
   },
   columnActions: {
     display: "flex",
     gap: "4px",
+  },
+  folderPath: {
+    fontSize: "13px",
+    color: "#93c5fd",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    flex: 1,
+  },
+  pathSeparator: {
+    color: "#6b7280",
+  },
+  parentFolder: {
+    color: "#9ca3af",
+  },
+  currentFolder: {
+    color: "#93c5fd",
+    fontWeight: 500,
   },
   backButton: {
     padding: "8px 12px",
@@ -948,6 +1017,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "4px",
     border: "none",
     backgroundColor: "#10b981",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  deleteFolderButton: {
+    padding: "6px 8px",
+    fontSize: "12px",
+    borderRadius: "4px",
+    border: "none",
+    backgroundColor: "#6b7280",
     color: "#fff",
     cursor: "pointer",
   },
