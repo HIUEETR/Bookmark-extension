@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { BookmarkNode, MoveRecord } from "./types";
 import { getTree, moveBookmark } from "./lib/bookmarks";
 
@@ -17,6 +17,59 @@ interface SavedState {
   columns: { id: string; folderId: string; folderTitle: string; expandedFolders: string[]; parentChain: { id: string; title: string }[] }[];
 }
 
+interface ToastProps {
+  message: string;
+  onClose: () => void;
+}
+
+function Toast({ message, onClose }: ToastProps) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div style={toastStyles.container}>
+      <span>{message}</span>
+      <button onClick={onClose} style={toastStyles.closeBtn}>×</button>
+    </div>
+  );
+}
+
+interface PromptModalProps {
+  title: string;
+  defaultValue: string;
+  onSubmit: (value: string) => void;
+  onCancel: () => void;
+}
+
+function PromptModal({ title, defaultValue, onSubmit, onCancel }: PromptModalProps) {
+  const [value, setValue] = useState(defaultValue);
+
+  return (
+    <div style={modalStyles.overlay} onClick={onCancel}>
+      <div style={promptModalStyles.modal} onClick={(e) => e.stopPropagation()}>
+        <h3 style={promptModalStyles.title}>{title}</h3>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          style={promptModalStyles.input}
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onSubmit(value);
+            if (e.key === "Escape") onCancel();
+          }}
+        />
+        <div style={promptModalStyles.actions}>
+          <button onClick={onCancel} style={promptModalStyles.cancelBtn}>Cancel</button>
+          <button onClick={() => onSubmit(value)} style={promptModalStyles.submitBtn}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface EmptyFolderModalProps {
   emptyFolders: { id: string; title: string; path: string }[];
   onDelete: (ids: string[]) => void;
@@ -24,7 +77,7 @@ interface EmptyFolderModalProps {
 }
 
 function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolderModalProps) {
-  const [selected, setSelected] = useState<Set<string>>(new Set(emptyFolders.map((f) => f.id)));
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -74,13 +127,13 @@ function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolderModalP
           <button onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
           <button
             onClick={handleDelete}
-            disabled={emptyFolders.length === 0 || selected.size === emptyFolders.length}
+            disabled={emptyFolders.length === 0}
             style={{
               ...modalStyles.deleteBtn,
-              ...(emptyFolders.length === 0 || selected.size === emptyFolders.length ? modalStyles.deleteBtnDisabled : {}),
+              ...(emptyFolders.length === 0 ? modalStyles.deleteBtnDisabled : {}),
             }}
           >
-            Delete Others ({emptyFolders.length - selected.size})
+            Delete ({emptyFolders.length - selected.size})
           </button>
         </div>
       </div>
@@ -96,10 +149,17 @@ export default function App() {
   const [dragTargetColumn, setDragTargetColumn] = useState<string | null>(null);
   const [emptyFolders, setEmptyFolders] = useState<{ id: string; title: string; path: string }[]>([]);
   const [showEmptyModal, setShowEmptyModal] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [promptModal, setPromptModal] = useState<{ type: string; data?: any } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadBookmarks();
   }, []);
+
+  const showToast = (message: string) => {
+    setToast(message);
+  };
 
   async function loadBookmarks() {
     const tree = await getTree();
@@ -200,7 +260,6 @@ export default function App() {
 
   function findEmptyFoldersInTree(tree: BookmarkNode[]): { id: string; title: string; path: string }[] {
     const result: { id: string; title: string; path: string }[] = [];
-
     const traverse = (nodes: BookmarkNode[], path: string) => {
       for (const node of nodes) {
         if (node.id === "0") {
@@ -218,7 +277,6 @@ export default function App() {
         }
       }
     };
-
     traverse(tree, "");
     return result;
   }
@@ -259,8 +317,10 @@ export default function App() {
       }
       setShowEmptyModal(false);
       loadBookmarks();
+      showToast(`Deleted ${ids.length} empty folder(s)`);
     } catch (err) {
       console.error("Failed to delete folders:", err);
+      showToast("Failed to delete folders");
     }
   };
 
@@ -293,41 +353,83 @@ export default function App() {
     saveState(newColumns);
   };
 
-  const createNewFolder = (columnId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const column = columns.find((c) => c.id === columnId);
-    if (!column) return;
+  const createNewFolder = (columnId: string) => {
+    setPromptModal({ type: "createFolder", data: { columnId } });
+  };
 
-    const folderName = prompt("Enter folder name:");
-    if (!folderName) return;
+  const handlePromptSubmit = (value: string) => {
+    if (!promptModal) return;
 
-    chrome.bookmarks.create(
-      { parentId: column.folderId, title: folderName },
-      () => {
-        getTree().then((tree) => {
-          setColumns((prev) => {
-            const newColumns = prev.map((col) => {
-              if (col.id === columnId) {
-                return {
-                  ...col,
-                  tree: findFolderTree(tree, col.folderId) || [],
-                };
-              }
-              return col;
-            });
-            return newColumns;
-          });
-        });
+    if (promptModal.type === "createFolder") {
+      const { columnId } = promptModal.data;
+      const column = columns.find((c) => c.id === columnId);
+      if (!column || !value.trim()) {
+        setPromptModal(null);
+        return;
       }
-    );
+
+      chrome.bookmarks.create(
+        { parentId: column.folderId, title: value.trim() },
+        () => {
+          setPromptModal(null);
+          getTree().then((tree) => {
+            setColumns((prev) => {
+              const newColumns = prev.map((col) => {
+                if (col.id === columnId) {
+                  return {
+                    ...col,
+                    tree: findFolderTree(tree, col.folderId) || [],
+                  };
+                }
+                return col;
+              });
+              return newColumns;
+            });
+          });
+          showToast("Folder created");
+        }
+      );
+    } else if (promptModal.type === "renameFolder") {
+      const { id } = promptModal.data;
+      if (!value.trim()) {
+        setPromptModal(null);
+        setRenamingId(null);
+        return;
+      }
+
+      chrome.bookmarks.update(id, { title: value.trim() }, () => {
+        setPromptModal(null);
+        setRenamingId(null);
+        loadBookmarks();
+        showToast("Folder renamed");
+      });
+    } else if (promptModal.type === "renameBookmark") {
+      const { id } = promptModal.data;
+      if (!value.trim()) {
+        setPromptModal(null);
+        setRenamingId(null);
+        return;
+      }
+
+      chrome.bookmarks.update(id, { title: value.trim() }, () => {
+        setPromptModal(null);
+        setRenamingId(null);
+        loadBookmarks();
+        showToast("Bookmark renamed");
+      });
+    }
   };
 
   const deleteCurrentFolder = (columnId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    e.preventDefault();
     const column = columns.find((c) => c.id === columnId);
     if (!column) return;
+
+    // If bookmarks are selected, delete them instead
+    if (selectedIds.size > 0) {
+      handleDeleteSelected();
+      return;
+    }
 
     const currentTitle = column.parentChain.length > 0
       ? column.parentChain[column.parentChain.length - 1].title
@@ -336,7 +438,7 @@ export default function App() {
     const hasContent = column.tree.some((node) => node.url || (node.children && node.children.length > 0));
 
     if (hasContent) {
-      const confirm1 = confirm(`Are you sure you want to delete "${currentTitle}"?\n\nAll contents will be deleted.\n\nClick OK to continue.`);
+      const confirm1 = confirm(`Delete "${currentTitle}"?\n\nAll contents will be deleted.\n\nClick OK to continue.`);
       if (!confirm1) return;
 
       const confirm2 = confirm(`This folder contains bookmarks. Are you ABSOLUTELY sure?\n\nClick OK to delete.`);
@@ -354,7 +456,6 @@ export default function App() {
         const newParentId = column.parentChain[column.parentChain.length - 2].id;
         changeColumnFolderDirect(columnId, newParentId);
       } else {
-        const roots = getRootFolders([]);
         getTree().then((tree) => {
           const allRoots = getRootFolders(tree);
           if (allRoots.length > 0) {
@@ -362,7 +463,85 @@ export default function App() {
           }
         });
       }
+      showToast("Folder deleted");
     });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+
+    const confirmed = confirm(`Delete ${selectedIds.size} selected item(s)?`);
+    if (!confirmed) return;
+
+    try {
+      for (const id of selectedIds) {
+        await chrome.bookmarks.remove(id);
+      }
+      setSelectedIds(new Set());
+      loadBookmarks();
+      showToast(`Deleted ${selectedIds.size} item(s)`);
+    } catch (err) {
+      console.error("Failed to delete:", err);
+      showToast("Failed to delete items");
+    }
+  };
+
+  const handleExport = () => {
+    chrome.bookmarks.getTree((tree) => {
+      const exportData = JSON.stringify(tree, null, 2);
+      const blob = new Blob([exportData], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bookmarks-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Bookmarks exported");
+    });
+  };
+
+  const handleImport = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        // Import using chrome.bookmarks.createTree or similar
+        // Edge/Chrome don't have a direct import tree API, so we use bookmark bar
+        const importTree = async (nodes: any[], parentId: string) => {
+          for (const node of nodes) {
+            if (node.url) {
+              await chrome.bookmarks.create({ parentId, title: node.title, url: node.url });
+            } else if (node.children) {
+              const folder = await chrome.bookmarks.create({ parentId, title: node.title });
+              await importTree(node.children, folder.id);
+            }
+          }
+        };
+
+        // Find bookmark bar (first root folder)
+        const tree = await chrome.bookmarks.getTree();
+        const bookmarkBar = tree.find(n => n.title === "" || n.id === "0");
+
+        if (bookmarkBar && bookmarkBar.children) {
+          await importTree(bookmarkBar.children, bookmarkBar.id);
+        } else {
+          await importTree(data, "1"); // Use first bookmark folder ID
+        }
+
+        loadBookmarks();
+        showToast("Bookmarks imported");
+      } catch (err) {
+        console.error("Failed to import:", err);
+        showToast("Failed to import bookmarks");
+      }
+    };
+    input.click();
   };
 
   const changeColumnFolderDirect = (columnId: string, newFolderId: string) => {
@@ -472,19 +651,11 @@ export default function App() {
     const targetColumn = columns.find((c) => c.id === targetColumnId);
     if (!targetColumn) return;
 
-    const record: MoveRecord = {
-      bookmarkId,
-      fromParentId: sourceParentId,
-      fromIndex: 0,
-      toParentId: targetColumn.folderId,
-      toIndex: targetIndex,
-    };
-
     try {
       await moveBookmark(bookmarkId, targetColumn.folderId, targetIndex);
-      setUndoStack((prev) => [...prev, record]);
       loadBookmarks();
       setSelectedIds(new Set());
+      showToast("Bookmark moved");
     } catch (err) {
       console.error("Failed to move bookmark:", err);
     }
@@ -516,6 +687,7 @@ export default function App() {
 
     loadBookmarks();
     setSelectedIds(new Set());
+    showToast("Bookmarks moved");
   };
 
   const handleUndo = async () => {
@@ -526,6 +698,7 @@ export default function App() {
       await moveBookmark(lastRecord.bookmarkId, lastRecord.fromParentId, lastRecord.fromIndex);
       setUndoStack((prev) => prev.slice(0, -1));
       loadBookmarks();
+      showToast("Undo successful");
     } catch (err) {
       console.error("Failed to undo:", err);
     }
@@ -557,6 +730,13 @@ export default function App() {
           <button onClick={showClearEmptyModal} style={styles.clearEmptyButton}>
             Clear Empty
           </button>
+          {selectedIds.size > 0 && (
+            <button onClick={handleDeleteSelected} style={styles.deleteButton}>
+              Delete ({selectedIds.size})
+            </button>
+          )}
+          <button onClick={handleImport} style={styles.importButton}>📥 Import</button>
+          <button onClick={handleExport} style={styles.exportButton}>📤 Export</button>
         </div>
         <button
           onClick={handleUndo}
@@ -628,11 +808,24 @@ export default function App() {
               </div>
               <div style={styles.columnActions}>
                 <button
-                  onClick={(e) => createNewFolder(column.id, e)}
+                  onClick={() => createNewFolder(column.id)}
                   style={styles.newFolderButton}
                   title="New folder"
                 >
                   +📁
+                </button>
+                <button
+                  onClick={(e) => {
+                    const currentTitle = column.parentChain.length > 0
+                      ? column.parentChain[column.parentChain.length - 1].title
+                      : column.folderTitle;
+                    setPromptModal({ type: "renameFolder", data: { id: column.folderId, title: currentTitle } });
+                    setRenamingId(column.folderId);
+                  }}
+                  style={styles.renameButton}
+                  title="Rename folder"
+                >
+                  📝
                 </button>
                 <button
                   onClick={(e) => deleteCurrentFolder(column.id, e)}
@@ -661,6 +854,10 @@ export default function App() {
                 onSelect={toggleSelect}
                 getFaviconUrl={getFaviconUrl}
                 onNavigate={(folderId) => changeColumnFolder(column.id, folderId)}
+                onRename={(id, title, url) => {
+                  setPromptModal({ type: "renameBookmark", data: { id, title, url } });
+                  setRenamingId(id);
+                }}
               />
             </div>
           </div>
@@ -674,6 +871,25 @@ export default function App() {
           onClose={() => setShowEmptyModal(false)}
         />
       )}
+
+      {promptModal && (
+        <PromptModal
+          title={promptModal.type === "createFolder" ? "New Folder" : "Rename"}
+          defaultValue={
+            promptModal.type === "renameFolder" ? (promptModal.data.title || "") :
+            promptModal.type === "renameBookmark" ? (promptModal.data.title || "") : ""
+          }
+          onSubmit={handlePromptSubmit}
+          onCancel={() => {
+            setPromptModal(null);
+            setRenamingId(null);
+          }}
+        />
+      )}
+
+      {toast && (
+        <Toast message={toast} onClose={() => setToast(null)} />
+      )}
     </div>
   );
 }
@@ -686,6 +902,7 @@ interface TreeViewProps {
   onSelect: (id: string) => void;
   getFaviconUrl: (url: string) => string;
   onNavigate?: (folderId: string) => void;
+  onRename?: (id: string, title: string, url?: string) => void;
   depth?: number;
 }
 
@@ -697,6 +914,7 @@ function TreeView({
   onSelect,
   getFaviconUrl,
   onNavigate,
+  onRename,
   depth = 0,
 }: TreeViewProps) {
   return (
@@ -734,6 +952,7 @@ function TreeView({
                   onSelect={onSelect}
                   getFaviconUrl={getFaviconUrl}
                   onNavigate={onNavigate}
+                  onRename={onRename}
                   depth={depth + 1}
                 />
               )}
@@ -776,12 +995,48 @@ function TreeView({
             >
               {node.title || node.url}
             </a>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename?.(node.id, node.title || "", node.url || "");
+              }}
+              style={styles.itemRenameBtn}
+              title="Rename"
+            >
+              📝
+            </button>
           </div>
         );
       })}
     </div>
   );
 }
+
+const toastStyles: Record<string, React.CSSProperties> = {
+  container: {
+    position: "fixed",
+    bottom: "20px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    backgroundColor: "#374151",
+    color: "#fff",
+    padding: "12px 20px",
+    borderRadius: "8px",
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    zIndex: 2000,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+  },
+  closeBtn: {
+    background: "none",
+    border: "none",
+    color: "#9ca3af",
+    cursor: "pointer",
+    fontSize: "16px",
+    padding: "0 4px",
+  },
+};
 
 const modalStyles: Record<string, React.CSSProperties> = {
   overlay: {
@@ -879,10 +1134,59 @@ const modalStyles: Record<string, React.CSSProperties> = {
   },
 };
 
+const promptModalStyles: Record<string, React.CSSProperties> = {
+  modal: {
+    backgroundColor: "#16213e",
+    borderRadius: "8px",
+    padding: "20px",
+    minWidth: "300px",
+  },
+  title: {
+    fontSize: "16px",
+    fontWeight: 600,
+    marginBottom: "12px",
+    color: "#eee",
+  },
+  input: {
+    width: "100%",
+    padding: "10px",
+    fontSize: "14px",
+    borderRadius: "4px",
+    border: "1px solid #0f3460",
+    backgroundColor: "#1a1a2e",
+    color: "#eee",
+    marginBottom: "12px",
+    boxSizing: "border-box",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "8px",
+  },
+  cancelBtn: {
+    padding: "8px 16px",
+    fontSize: "14px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#374151",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  submitBtn: {
+    padding: "8px 16px",
+    fontSize: "14px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#4f46e5",
+    color: "#fff",
+    cursor: "pointer",
+  },
+};
+
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    width: "100%",
-    minHeight: "100vh",
+    width: "100vw",
+    height: "100vh",
     backgroundColor: "#1a1a2e",
     color: "#eee",
     fontFamily: "system-ui, -apple-system, sans-serif",
@@ -890,6 +1194,7 @@ const styles: Record<string, React.CSSProperties> = {
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
+    overflow: "hidden",
   },
   header: {
     display: "flex",
@@ -922,6 +1227,15 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#fff",
     cursor: "pointer",
   },
+  deleteButton: {
+    padding: "6px 12px",
+    fontSize: "13px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#ef4444",
+    color: "#fff",
+    cursor: "pointer",
+  },
   undoButton: {
     padding: "6px 12px",
     fontSize: "13px",
@@ -936,6 +1250,24 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "not-allowed",
     opacity: 0.6,
   },
+  importButton: {
+    padding: "6px 12px",
+    fontSize: "13px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#6366f1",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  exportButton: {
+    padding: "6px 12px",
+    fontSize: "13px",
+    borderRadius: "6px",
+    border: "none",
+    backgroundColor: "#6366f1",
+    color: "#fff",
+    cursor: "pointer",
+  },
   selectionBar: {
     padding: "12px",
     marginBottom: "12px",
@@ -949,7 +1281,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     gap: "16px",
     flex: 1,
-    overflowX: "auto",
+    overflow: "hidden",
     minHeight: 0,
   },
   column: {
@@ -1021,6 +1353,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "4px",
     border: "none",
     backgroundColor: "#10b981",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  renameButton: {
+    padding: "6px 8px",
+    fontSize: "12px",
+    borderRadius: "4px",
+    border: "none",
+    backgroundColor: "#6366f1",
     color: "#fff",
     cursor: "pointer",
   },
@@ -1104,5 +1445,15 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+  itemRenameBtn: {
+    padding: "4px 6px",
+    fontSize: "11px",
+    borderRadius: "4px",
+    border: "none",
+    backgroundColor: "#374151",
+    color: "#9ca3af",
+    cursor: "pointer",
+    opacity: 0.7,
   },
 };

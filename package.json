@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "postbuild": "node scripts/copy-assets.cjs",
     "preview": "vite preview"
   },
   "dependencies": {
