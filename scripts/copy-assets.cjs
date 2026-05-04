@@ -56,6 +56,14 @@ const manifest = {
   ]
 };
 
+// Copy index.html as sidepanel.html for the Chrome extension newtab override
+const indexHtml = path.join(distDir, 'index.html');
+const sidepanelHtml = path.join(distDir, 'sidepanel.html');
+if (fs.existsSync(indexHtml)) {
+  fs.copyFileSync(indexHtml, sidepanelHtml);
+  console.log('Copied: index.html -> sidepanel.html');
+}
+
 fs.writeFileSync(path.join(distDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
 console.log('Build post-processing complete');

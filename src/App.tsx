@@ -1,6 +1,29 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import type { BookmarkNode, MoveRecord } from "./types";
 import { getTree, moveBookmark } from "./lib/bookmarks";
+import { useI18n } from "./context/I18nContext";
+import { useTheme } from "./context/ThemeContext";
+import { Toast } from "./components/Toast";
+import { PromptModal } from "./components/PromptModal";
+import { EmptyFolderModal } from "./components/EmptyFolderModal";
+import { TreeView } from "./components/TreeView";
+import {
+  IconPlus,
+  IconTrash,
+  IconUndo,
+  IconDownload,
+  IconUpload,
+  IconArrowLeft,
+  IconFolderPlus,
+  IconEdit,
+  IconX,
+  IconBroom,
+  IconSun,
+  IconMoon,
+  IconLanguage,
+  IconColumns,
+} from "./components/Icons";
+import "./styles/app.css";
 
 interface ColumnData {
   id: string;
@@ -14,134 +37,19 @@ interface ColumnData {
 const STORAGE_KEY = "my-bookmark-state";
 
 interface SavedState {
-  columns: { id: string; folderId: string; folderTitle: string; expandedFolders: string[]; parentChain: { id: string; title: string }[] }[];
-}
-
-interface ToastProps {
-  message: string;
-  onClose: () => void;
-}
-
-function Toast({ message, onClose }: ToastProps) {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 3000);
-    return () => clearTimeout(timer);
-  }, [onClose]);
-
-  return (
-    <div style={toastStyles.container}>
-      <span>{message}</span>
-      <button onClick={onClose} style={toastStyles.closeBtn}>×</button>
-    </div>
-  );
-}
-
-interface PromptModalProps {
-  title: string;
-  defaultValue: string;
-  onSubmit: (value: string) => void;
-  onCancel: () => void;
-}
-
-function PromptModal({ title, defaultValue, onSubmit, onCancel }: PromptModalProps) {
-  const [value, setValue] = useState(defaultValue);
-
-  return (
-    <div style={modalStyles.overlay} onClick={onCancel}>
-      <div style={promptModalStyles.modal} onClick={(e) => e.stopPropagation()}>
-        <h3 style={promptModalStyles.title}>{title}</h3>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          style={promptModalStyles.input}
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onSubmit(value);
-            if (e.key === "Escape") onCancel();
-          }}
-        />
-        <div style={promptModalStyles.actions}>
-          <button onClick={onCancel} style={promptModalStyles.cancelBtn}>Cancel</button>
-          <button onClick={() => onSubmit(value)} style={promptModalStyles.submitBtn}>OK</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface EmptyFolderModalProps {
-  emptyFolders: { id: string; title: string; path: string }[];
-  onDelete: (ids: string[]) => void;
-  onClose: () => void;
-}
-
-function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolderModalProps) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  const toggleSelect = (id: string) => {
-    setSelected((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      return newSet;
-    });
-  };
-
-  const handleDelete = () => {
-    const toDelete = emptyFolders.filter((f) => !selected.has(f.id)).map((f) => f.id);
-    onDelete(toDelete);
-  };
-
-  return (
-    <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
-        <h2 style={modalStyles.title}>Empty Folders</h2>
-        <p style={modalStyles.subtitle}>Select folders to KEEP (unchecked will be deleted):</p>
-        <div style={modalStyles.list}>
-          {emptyFolders.length === 0 ? (
-            <div style={modalStyles.empty}>No empty folders found</div>
-          ) : (
-            emptyFolders.map((folder) => (
-              <div
-                key={folder.id}
-                style={{
-                  ...modalStyles.item,
-                  ...(selected.has(folder.id) ? {} : modalStyles.itemExcluded),
-                }}
-                onClick={() => toggleSelect(folder.id)}
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(folder.id)}
-                  onChange={() => toggleSelect(folder.id)}
-                  style={{ marginRight: "8px" }}
-                />
-                <span>{folder.title}</span>
-                <span style={modalStyles.path}>{folder.path}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <div style={modalStyles.actions}>
-          <button onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
-          <button
-            onClick={handleDelete}
-            disabled={emptyFolders.length === 0}
-            style={{
-              ...modalStyles.deleteBtn,
-              ...(emptyFolders.length === 0 ? modalStyles.deleteBtnDisabled : {}),
-            }}
-          >
-            Delete ({emptyFolders.length - selected.size})
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  columns: {
+    id: string;
+    folderId: string;
+    folderTitle: string;
+    expandedFolders: string[];
+    parentChain: { id: string; title: string }[];
+  }[];
 }
 
 export default function App() {
+  const { t, locale, setLocale } = useI18n();
+  const { theme, toggleTheme } = useTheme();
+
   const [columns, setColumns] = useState<ColumnData[]>([]);
   const [allFolders, setAllFolders] = useState<{ id: string; title: string; path: string }[]>([]);
   const [undoStack, setUndoStack] = useState<MoveRecord[]>([]);
@@ -151,15 +59,21 @@ export default function App() {
   const [showEmptyModal, setShowEmptyModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [promptModal, setPromptModal] = useState<{ type: string; data?: any } | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadBookmarks();
   }, []);
 
-  const showToast = (message: string) => {
-    setToast(message);
-  };
+  const showToast = (message: string) => setToast(message);
+
+  // Helper to interpolate {{count}} etc.
+  function tr(str: string, vars?: Record<string, string | number>): string {
+    if (!vars) return str;
+    return Object.entries(vars).reduce(
+      (s, [k, v]) => s.replace(`{{${k}}}`, String(v)),
+      str
+    );
+  }
 
   async function loadBookmarks() {
     const tree = await getTree();
@@ -204,7 +118,10 @@ export default function App() {
     return [];
   }
 
-  function extractAllFolders(nodes: BookmarkNode[], pathPrefix = ""): { id: string; title: string; path: string }[] {
+  function extractAllFolders(
+    nodes: BookmarkNode[],
+    pathPrefix = ""
+  ): { id: string; title: string; path: string }[] {
     const result: { id: string; title: string; path: string }[] = [];
     for (const node of nodes) {
       if (node.id === "0" && node.children) {
@@ -231,9 +148,16 @@ export default function App() {
     return null;
   }
 
-  function buildParentChain(tree: BookmarkNode[], folderId: string): { id: string; title: string }[] {
+  function buildParentChain(
+    tree: BookmarkNode[],
+    folderId: string
+  ): { id: string; title: string }[] {
     const chain: { id: string; title: string }[] = [];
-    const find = (nodes: BookmarkNode[], target: string, path: { id: string; title: string }[]): boolean => {
+    const find = (
+      nodes: BookmarkNode[],
+      target: string,
+      path: { id: string; title: string }[]
+    ): boolean => {
       for (const node of nodes) {
         const currentPath = [...path, { id: node.id, title: node.title || "(root)" }];
         if (node.id === target) {
@@ -258,7 +182,9 @@ export default function App() {
     return node.children.every((child) => isFolderEmpty(child));
   }
 
-  function findEmptyFoldersInTree(tree: BookmarkNode[]): { id: string; title: string; path: string }[] {
+  function findEmptyFoldersInTree(
+    tree: BookmarkNode[]
+  ): { id: string; title: string; path: string }[] {
     const result: { id: string; title: string; path: string }[] = [];
     const traverse = (nodes: BookmarkNode[], path: string) => {
       for (const node of nodes) {
@@ -290,9 +216,9 @@ export default function App() {
     }
   }
 
-  function saveState(columns: ColumnData[]) {
+  function saveState(cols: ColumnData[]) {
     const state: SavedState = {
-      columns: columns.map((col) => ({
+      columns: cols.map((col) => ({
         id: col.id,
         folderId: col.folderId,
         folderTitle: col.folderTitle,
@@ -317,10 +243,10 @@ export default function App() {
       }
       setShowEmptyModal(false);
       loadBookmarks();
-      showToast(`Deleted ${ids.length} empty folder(s)`);
+      showToast(tr(t.toast.deletedEmpty, { count: ids.length }));
     } catch (err) {
       console.error("Failed to delete folders:", err);
-      showToast("Failed to delete folders");
+      showToast(t.toast.deleteFailed);
     }
   };
 
@@ -368,54 +294,41 @@ export default function App() {
         return;
       }
 
-      chrome.bookmarks.create(
-        { parentId: column.folderId, title: value.trim() },
-        () => {
-          setPromptModal(null);
-          getTree().then((tree) => {
-            setColumns((prev) => {
-              const newColumns = prev.map((col) => {
-                if (col.id === columnId) {
-                  return {
-                    ...col,
-                    tree: findFolderTree(tree, col.folderId) || [],
-                  };
-                }
-                return col;
-              });
-              return newColumns;
-            });
-          });
-          showToast("Folder created");
-        }
-      );
+      chrome.bookmarks.create({ parentId: column.folderId, title: value.trim() }, () => {
+        setPromptModal(null);
+        getTree().then((tree) => {
+          setColumns((prev) =>
+            prev.map((col) => {
+              if (col.id === columnId) {
+                return { ...col, tree: findFolderTree(tree, col.folderId) || [] };
+              }
+              return col;
+            })
+          );
+        });
+        showToast(t.toast.folderCreated);
+      });
     } else if (promptModal.type === "renameFolder") {
       const { id } = promptModal.data;
       if (!value.trim()) {
         setPromptModal(null);
-        setRenamingId(null);
         return;
       }
-
       chrome.bookmarks.update(id, { title: value.trim() }, () => {
         setPromptModal(null);
-        setRenamingId(null);
         loadBookmarks();
-        showToast("Folder renamed");
+        showToast(t.toast.folderRenamed);
       });
     } else if (promptModal.type === "renameBookmark") {
       const { id } = promptModal.data;
       if (!value.trim()) {
         setPromptModal(null);
-        setRenamingId(null);
         return;
       }
-
       chrome.bookmarks.update(id, { title: value.trim() }, () => {
         setPromptModal(null);
-        setRenamingId(null);
         loadBookmarks();
-        showToast("Bookmark renamed");
+        showToast(t.toast.bookmarkRenamed);
       });
     }
   };
@@ -425,29 +338,29 @@ export default function App() {
     const column = columns.find((c) => c.id === columnId);
     if (!column) return;
 
-    // If bookmarks are selected, delete them instead
     if (selectedIds.size > 0) {
       handleDeleteSelected();
       return;
     }
 
-    const currentTitle = column.parentChain.length > 0
-      ? column.parentChain[column.parentChain.length - 1].title
-      : column.folderTitle;
+    const currentTitle =
+      column.parentChain.length > 0
+        ? column.parentChain[column.parentChain.length - 1].title
+        : column.folderTitle;
 
-    const hasContent = column.tree.some((node) => node.url || (node.children && node.children.length > 0));
+    const hasContent = column.tree.some(
+      (node) => node.url || (node.children && node.children.length > 0)
+    );
 
     if (hasContent) {
-      const confirm1 = confirm(`Delete "${currentTitle}"?\n\nAll contents will be deleted.\n\nClick OK to continue.`);
+      const confirm1 = confirm(tr(t.confirm.deleteFolderWithContents, { name: currentTitle }));
       if (!confirm1) return;
-
-      const confirm2 = confirm(`This folder contains bookmarks. Are you ABSOLUTELY sure?\n\nClick OK to delete.`);
+      const confirm2 = confirm(t.confirm.deleteFolderWarning);
       if (!confirm2) return;
-
-      const confirm3 = confirm(`FINAL WARNING: "${currentTitle}" will be permanently deleted!\n\nClick OK to continue.`);
+      const confirm3 = confirm(tr(t.confirm.deleteFolderFinal, { name: currentTitle }));
       if (!confirm3) return;
     } else {
-      const confirmed = confirm(`Delete folder "${currentTitle}"?`);
+      const confirmed = confirm(tr(t.confirm.deleteFolder, { name: currentTitle }));
       if (!confirmed) return;
     }
 
@@ -463,14 +376,13 @@ export default function App() {
           }
         });
       }
-      showToast("Folder deleted");
+      showToast(t.toast.folderDeleted);
     });
   };
 
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
-
-    const confirmed = confirm(`Delete ${selectedIds.size} selected item(s)?`);
+    const confirmed = confirm(tr(t.confirm.deleteSelected, { count: selectedIds.size }));
     if (!confirmed) return;
 
     try {
@@ -479,10 +391,10 @@ export default function App() {
       }
       setSelectedIds(new Set());
       loadBookmarks();
-      showToast(`Deleted ${selectedIds.size} item(s)`);
+      showToast(tr(t.toast.deletedItems, { count: selectedIds.size }));
     } catch (err) {
       console.error("Failed to delete:", err);
-      showToast("Failed to delete items");
+      showToast(t.toast.deleteItemsFailed);
     }
   };
 
@@ -496,7 +408,7 @@ export default function App() {
       a.download = `bookmarks-export-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast("Bookmarks exported");
+      showToast(t.toast.exported);
     });
   };
 
@@ -507,12 +419,9 @@ export default function App() {
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
-
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        // Import using chrome.bookmarks.createTree or similar
-        // Edge/Chrome don't have a direct import tree API, so we use bookmark bar
         const importTree = async (nodes: any[], parentId: string) => {
           for (const node of nodes) {
             if (node.url) {
@@ -523,22 +432,18 @@ export default function App() {
             }
           }
         };
-
-        // Find bookmark bar (first root folder)
         const tree = await chrome.bookmarks.getTree();
-        const bookmarkBar = tree.find(n => n.title === "" || n.id === "0");
-
+        const bookmarkBar = tree.find((n) => n.title === "" || n.id === "0");
         if (bookmarkBar && bookmarkBar.children) {
           await importTree(bookmarkBar.children, bookmarkBar.id);
         } else {
-          await importTree(data, "1"); // Use first bookmark folder ID
+          await importTree(data, "1");
         }
-
         loadBookmarks();
-        showToast("Bookmarks imported");
+        showToast(t.toast.imported);
       } catch (err) {
         console.error("Failed to import:", err);
-        showToast("Failed to import bookmarks");
+        showToast(t.toast.importFailed);
       }
     };
     input.click();
@@ -548,7 +453,10 @@ export default function App() {
     getTree().then((tree) => {
       const parentChain = buildParentChain(tree, newFolderId);
       const folder = allFolders.find((f) => f.id === newFolderId);
-      const title = parentChain.length > 0 ? parentChain[parentChain.length - 1].title : (folder?.title || "Unknown");
+      const title =
+        parentChain.length > 0
+          ? parentChain[parentChain.length - 1].title
+          : folder?.title || "Unknown";
       setColumns((prev) => {
         const newColumns = prev.map((col) => {
           if (col.id === columnId) {
@@ -569,14 +477,9 @@ export default function App() {
     });
   };
 
-  const changeColumnFolder = (columnId: string, newFolderId: string) => {
-    changeColumnFolderDirect(columnId, newFolderId);
-  };
-
   const goBack = (columnId: string) => {
     const column = columns.find((c) => c.id === columnId);
     if (!column || column.parentChain.length <= 1) return;
-
     const parentId = column.parentChain[column.parentChain.length - 2].id;
     changeColumnFolderDirect(columnId, parentId);
   };
@@ -586,11 +489,8 @@ export default function App() {
       const newColumns = prev.map((col) => {
         if (col.id === columnId) {
           const expanded = new Set(col.expandedFolders);
-          if (expanded.has(folderId)) {
-            expanded.delete(folderId);
-          } else {
-            expanded.add(folderId);
-          }
+          if (expanded.has(folderId)) expanded.delete(folderId);
+          else expanded.add(folderId);
           return { ...col, expandedFolders: expanded };
         }
         return col;
@@ -603,11 +503,8 @@ export default function App() {
   const toggleSelect = (bookmarkId: string) => {
     setSelectedIds((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(bookmarkId)) {
-        newSet.delete(bookmarkId);
-      } else {
-        newSet.add(bookmarkId);
-      }
+      if (newSet.has(bookmarkId)) newSet.delete(bookmarkId);
+      else newSet.add(bookmarkId);
       return newSet;
     });
   };
@@ -616,10 +513,6 @@ export default function App() {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setDragTargetColumn(columnId);
-  };
-
-  const handleColumnDragLeave = () => {
-    setDragTargetColumn(null);
   };
 
   const handleColumnDrop = async (e: React.DragEvent, targetColumnId: string) => {
@@ -635,48 +528,27 @@ export default function App() {
     }
   };
 
-  const moveSingleBookmark = async (bookmarkId: string, targetColumnId: string, targetIndex: number) => {
-    let sourceParentId = "";
-
-    for (const col of columns) {
-      const found = findBookmarkInTree(col.tree, bookmarkId);
-      if (found) {
-        sourceParentId = col.folderId;
-        break;
-      }
-    }
-
-    if (!sourceParentId) return;
-
+  const moveSingleBookmark = async (
+    bookmarkId: string,
+    targetColumnId: string,
+    targetIndex: number
+  ) => {
     const targetColumn = columns.find((c) => c.id === targetColumnId);
     if (!targetColumn) return;
-
     try {
       await moveBookmark(bookmarkId, targetColumn.folderId, targetIndex);
       loadBookmarks();
       setSelectedIds(new Set());
-      showToast("Bookmark moved");
+      showToast(t.toast.bookmarkMoved);
     } catch (err) {
       console.error("Failed to move bookmark:", err);
     }
   };
 
-  const findBookmarkInTree = (tree: BookmarkNode[], id: string): boolean => {
-    for (const node of tree) {
-      if (node.id === id) return true;
-      if (node.children) {
-        if (findBookmarkInTree(node.children, id)) return true;
-      }
-    }
-    return false;
-  };
-
   const moveSelectedBookmarks = async (targetColumnId: string) => {
     const targetColumn = columns.find((c) => c.id === targetColumnId);
     if (!targetColumn) return;
-
     const targetIndex = targetColumn.tree.length;
-
     for (const id of selectedIds) {
       try {
         await moveBookmark(id, targetColumn.folderId, targetIndex);
@@ -684,21 +556,19 @@ export default function App() {
         console.error("Failed to move bookmark:", err);
       }
     }
-
     loadBookmarks();
     setSelectedIds(new Set());
-    showToast("Bookmarks moved");
+    showToast(t.toast.bookmarksMoved);
   };
 
   const handleUndo = async () => {
     if (undoStack.length === 0) return;
-
     const lastRecord = undoStack[undoStack.length - 1];
     try {
       await moveBookmark(lastRecord.bookmarkId, lastRecord.fromParentId, lastRecord.fromIndex);
       setUndoStack((prev) => prev.slice(0, -1));
       loadBookmarks();
-      showToast("Undo successful");
+      showToast(t.toast.undoSuccessful);
     } catch (err) {
       console.error("Failed to undo:", err);
     }
@@ -713,91 +583,112 @@ export default function App() {
     }
   };
 
+  const toggleLocale = () => {
+    setLocale(locale === "en" ? "zh" : "en");
+  };
+
   if (columns.length === 0) {
     return (
-      <div style={styles.container}>
-        <p>Loading bookmarks...</p>
+      <div className="app">
+        <div className="loading">{t.app.loading}</div>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <h1 style={styles.title}>My Bookmark</h1>
-          <button onClick={addColumn} style={styles.addButton}>+ Add Column</button>
-          <button onClick={showClearEmptyModal} style={styles.clearEmptyButton}>
-            Clear Empty
+    <div className="app">
+      {/* Header */}
+      <div className="header">
+        <div className="header-left">
+          <h1 className="title">{t.app.title}</h1>
+          <button onClick={addColumn} className="btn btn-success">
+            <IconPlus />
+            {t.header.addColumn}
+          </button>
+          <button onClick={showClearEmptyModal} className="btn btn-warning">
+            <IconBroom />
+            {t.header.clearEmpty}
           </button>
           {selectedIds.size > 0 && (
-            <button onClick={handleDeleteSelected} style={styles.deleteButton}>
-              Delete ({selectedIds.size})
+            <button onClick={handleDeleteSelected} className="btn btn-danger">
+              <IconTrash />
+              {tr(t.header.deleteSelected, { count: selectedIds.size })}
             </button>
           )}
-          <button onClick={handleImport} style={styles.importButton}>📥 Import</button>
-          <button onClick={handleExport} style={styles.exportButton}>📤 Export</button>
+          <button onClick={handleImport} className="btn btn-ghost">
+            <IconUpload />
+            {t.header.import}
+          </button>
+          <button onClick={handleExport} className="btn btn-ghost">
+            <IconDownload />
+            {t.header.export}
+          </button>
+          <button
+            onClick={handleUndo}
+            disabled={undoStack.length === 0}
+            className="btn btn-ghost"
+          >
+            <IconUndo />
+            {tr(t.header.undo, { count: undoStack.length })}
+          </button>
         </div>
-        <button
-          onClick={handleUndo}
-          disabled={undoStack.length === 0}
-          style={{
-            ...styles.undoButton,
-            ...(undoStack.length === 0 ? styles.undoButtonDisabled : {}),
-          }}
-        >
-          Undo ({undoStack.length})
-        </button>
+
+        <div className="header-right">
+          <div className="toggle-group">
+            <button
+              className={`toggle-btn${locale === "en" ? " active" : ""}`}
+              onClick={() => setLocale("en")}
+            >
+              EN
+            </button>
+            <button
+              className={`toggle-btn${locale === "zh" ? " active" : ""}`}
+              onClick={() => setLocale("zh")}
+            >
+              中
+            </button>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={toggleTheme} title="Toggle theme">
+            {theme === "dark" ? <IconSun /> : <IconMoon />}
+          </button>
+        </div>
       </div>
 
+      {/* Selection Bar */}
       {selectedIds.size > 0 && (
-        <div style={styles.selectionBar}>
-          {selectedIds.size} selected - Drop on a column to move
+        <div className="selection-bar">
+          {tr(t.selection.count, { count: selectedIds.size })} &mdash; {t.selection.dropHint}
         </div>
       )}
 
-      <div style={styles.columnsContainer}>
+      {/* Columns */}
+      <div className="columns-container">
         {columns.map((column) => (
           <div
             key={column.id}
-            style={{
-              ...styles.column,
-              ...(dragTargetColumn === column.id ? styles.columnDragOver : {}),
-            }}
+            className={`column${dragTargetColumn === column.id ? " drag-over" : ""}`}
             onDragOver={(e) => handleColumnDragOver(e, column.id)}
-            onDragLeave={handleColumnDragLeave}
+            onDragLeave={() => setDragTargetColumn(null)}
             onDrop={(e) => handleColumnDrop(e, column.id)}
           >
-            <div style={styles.columnHeader}>
-              <div style={styles.columnNav}>
+            {/* Column Header */}
+            <div className="column-header">
+              <div className="column-nav">
                 {column.parentChain.length > 1 && (
-                  <button
-                    onClick={() => goBack(column.id)}
-                    style={styles.backButton}
-                    title="Go back"
-                  >
-                    ←
+                  <button onClick={() => goBack(column.id)} className="back-btn" title="Go back">
+                    <IconArrowLeft />
                   </button>
                 )}
-                <span style={styles.folderPath}>
+                <span className="folder-path">
                   {column.parentChain.map((p, i) => (
                     <span key={p.id}>
-                      {i > 0 && <span style={styles.pathSeparator}> / </span>}
+                      {i > 0 && <span className="path-separator"> / </span>}
                       <span
-                        style={i === column.parentChain.length - 1 ? styles.currentFolder : styles.parentFolder}
+                        className={i === column.parentChain.length - 1 ? "current-folder" : "parent-folder"}
                         onClick={() => {
                           if (i < column.parentChain.length - 1) {
-                            changeColumnFolder(column.id, p.id);
+                            changeColumnFolderDirect(column.id, p.id);
                           }
-                        }}
-                        onMouseEnter={(e) => {
-                          if (i < column.parentChain.length - 1) {
-                            (e.target as HTMLSpanElement).style.textDecoration = "underline";
-                            (e.target as HTMLSpanElement).style.cursor = "pointer";
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.target as HTMLSpanElement).style.textDecoration = "";
                         }}
                       >
                         {p.title}
@@ -806,46 +697,51 @@ export default function App() {
                   ))}
                 </span>
               </div>
-              <div style={styles.columnActions}>
+              <div className="column-actions">
                 <button
                   onClick={() => createNewFolder(column.id)}
-                  style={styles.newFolderButton}
-                  title="New folder"
+                  className="btn btn-ghost btn-icon"
+                  title={t.column.newFolder}
                 >
-                  +📁
+                  <IconFolderPlus />
                 </button>
                 <button
-                  onClick={(e) => {
-                    const currentTitle = column.parentChain.length > 0
-                      ? column.parentChain[column.parentChain.length - 1].title
-                      : column.folderTitle;
-                    setPromptModal({ type: "renameFolder", data: { id: column.folderId, title: currentTitle } });
-                    setRenamingId(column.folderId);
+                  onClick={() => {
+                    const currentTitle =
+                      column.parentChain.length > 0
+                        ? column.parentChain[column.parentChain.length - 1].title
+                        : column.folderTitle;
+                    setPromptModal({
+                      type: "renameFolder",
+                      data: { id: column.folderId, title: currentTitle },
+                    });
                   }}
-                  style={styles.renameButton}
-                  title="Rename folder"
+                  className="btn btn-ghost btn-icon"
+                  title={t.column.renameFolder}
                 >
-                  📝
+                  <IconEdit />
                 </button>
                 <button
                   onClick={(e) => deleteCurrentFolder(column.id, e)}
-                  style={styles.deleteFolderButton}
-                  title="Delete folder"
+                  className="btn btn-ghost btn-icon"
+                  title={t.column.deleteFolder}
                 >
-                  🗑
+                  <IconTrash />
                 </button>
                 {columns.length > 2 && (
                   <button
                     onClick={() => removeColumn(column.id)}
-                    style={styles.removeButton}
+                    className="btn btn-ghost btn-icon"
+                    title={t.column.removeColumn}
                   >
-                    ×
+                    <IconX />
                   </button>
                 )}
               </div>
             </div>
 
-            <div style={styles.bookmarkTree}>
+            {/* Bookmark Tree */}
+            <div className="bookmark-tree">
               <TreeView
                 nodes={column.tree}
                 expandedFolders={column.expandedFolders}
@@ -853,10 +749,9 @@ export default function App() {
                 onToggle={(id) => toggleFolder(column.id, id)}
                 onSelect={toggleSelect}
                 getFaviconUrl={getFaviconUrl}
-                onNavigate={(folderId) => changeColumnFolder(column.id, folderId)}
-                onRename={(id, title, url) => {
-                  setPromptModal({ type: "renameBookmark", data: { id, title, url } });
-                  setRenamingId(id);
+                onNavigate={(folderId) => changeColumnFolderDirect(column.id, folderId)}
+                onRename={(id, title) => {
+                  setPromptModal({ type: "renameBookmark", data: { id, title } });
                 }}
               />
             </div>
@@ -864,6 +759,7 @@ export default function App() {
         ))}
       </div>
 
+      {/* Modals */}
       {showEmptyModal && (
         <EmptyFolderModal
           emptyFolders={emptyFolders}
@@ -874,586 +770,24 @@ export default function App() {
 
       {promptModal && (
         <PromptModal
-          title={promptModal.type === "createFolder" ? "New Folder" : "Rename"}
+          title={
+            promptModal.type === "createFolder"
+              ? t.modal.prompt.newFolder
+              : t.modal.prompt.rename
+          }
           defaultValue={
-            promptModal.type === "renameFolder" ? (promptModal.data.title || "") :
-            promptModal.type === "renameBookmark" ? (promptModal.data.title || "") : ""
+            promptModal.type === "renameFolder"
+              ? promptModal.data.title || ""
+              : promptModal.type === "renameBookmark"
+                ? promptModal.data.title || ""
+                : ""
           }
           onSubmit={handlePromptSubmit}
-          onCancel={() => {
-            setPromptModal(null);
-            setRenamingId(null);
-          }}
+          onCancel={() => setPromptModal(null)}
         />
       )}
 
-      {toast && (
-        <Toast message={toast} onClose={() => setToast(null)} />
-      )}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }
-
-interface TreeViewProps {
-  nodes: BookmarkNode[];
-  expandedFolders: Set<string>;
-  selectedIds: Set<string>;
-  onToggle: (id: string) => void;
-  onSelect: (id: string) => void;
-  getFaviconUrl: (url: string) => string;
-  onNavigate?: (folderId: string) => void;
-  onRename?: (id: string, title: string, url?: string) => void;
-  depth?: number;
-}
-
-function TreeView({
-  nodes,
-  expandedFolders,
-  selectedIds,
-  onToggle,
-  onSelect,
-  getFaviconUrl,
-  onNavigate,
-  onRename,
-  depth = 0,
-}: TreeViewProps) {
-  return (
-    <div style={{ paddingLeft: depth * 16 + "px" }}>
-      {nodes.map((node) => {
-        const isFolder = !node.url;
-        const isExpanded = expandedFolders.has(node.id);
-
-        if (isFolder) {
-          const hasChildren = node.children && node.children.length > 0;
-          return (
-            <div key={node.id}>
-              <div
-                style={styles.folderItem}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (hasChildren) {
-                    onToggle(node.id);
-                  }
-                  onNavigate?.(node.id);
-                }}
-              >
-                <span style={styles.expandIcon}>
-                  {hasChildren ? (isExpanded ? "▼" : "▶") : ""}
-                </span>
-                <span style={styles.folderIcon}>📁</span>
-                <span style={styles.folderName}>{node.title || "(root)"}</span>
-              </div>
-              {isExpanded && node.children && (
-                <TreeView
-                  nodes={node.children}
-                  expandedFolders={expandedFolders}
-                  selectedIds={selectedIds}
-                  onToggle={onToggle}
-                  onSelect={onSelect}
-                  getFaviconUrl={getFaviconUrl}
-                  onNavigate={onNavigate}
-                  onRename={onRename}
-                  depth={depth + 1}
-                />
-              )}
-            </div>
-          );
-        }
-
-        return (
-          <div
-            key={node.id}
-            style={{
-              ...styles.bookmarkItem,
-              ...(selectedIds.has(node.id) ? styles.bookmarkItemSelected : {}),
-            }}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData("text/plain", node.id);
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={selectedIds.has(node.id)}
-              onChange={() => onSelect(node.id)}
-              style={styles.checkbox}
-            />
-            <img
-              src={getFaviconUrl(node.url!)}
-              alt=""
-              style={styles.favicon}
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
-            <a
-              href={node.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={styles.bookmarkLink}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {node.title || node.url}
-            </a>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onRename?.(node.id, node.title || "", node.url || "");
-              }}
-              style={styles.itemRenameBtn}
-              title="Rename"
-            >
-              📝
-            </button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-const toastStyles: Record<string, React.CSSProperties> = {
-  container: {
-    position: "fixed",
-    bottom: "20px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    backgroundColor: "#374151",
-    color: "#fff",
-    padding: "12px 20px",
-    borderRadius: "8px",
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    zIndex: 2000,
-    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-  },
-  closeBtn: {
-    background: "none",
-    border: "none",
-    color: "#9ca3af",
-    cursor: "pointer",
-    fontSize: "16px",
-    padding: "0 4px",
-  },
-};
-
-const modalStyles: Record<string, React.CSSProperties> = {
-  overlay: {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000,
-  },
-  modal: {
-    backgroundColor: "#16213e",
-    borderRadius: "8px",
-    padding: "20px",
-    minWidth: "400px",
-    maxWidth: "600px",
-    maxHeight: "80vh",
-    overflow: "auto",
-  },
-  title: {
-    fontSize: "18px",
-    fontWeight: 600,
-    marginBottom: "8px",
-    color: "#eee",
-  },
-  subtitle: {
-    fontSize: "14px",
-    color: "#9ca3af",
-    marginBottom: "16px",
-  },
-  list: {
-    maxHeight: "400px",
-    overflowY: "auto",
-    marginBottom: "16px",
-  },
-  empty: {
-    padding: "20px",
-    textAlign: "center",
-    color: "#6b7280",
-  },
-  item: {
-    display: "flex",
-    alignItems: "center",
-    padding: "10px",
-    marginBottom: "4px",
-    backgroundColor: "#1a1a2e",
-    borderRadius: "4px",
-    cursor: "pointer",
-  },
-  itemExcluded: {
-    backgroundColor: "#450a0a",
-    textDecoration: "line-through",
-    opacity: 0.7,
-  },
-  path: {
-    marginLeft: "8px",
-    fontSize: "12px",
-    color: "#6b7280",
-    flex: 1,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "8px",
-  },
-  cancelBtn: {
-    padding: "8px 16px",
-    fontSize: "14px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#374151",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  deleteBtn: {
-    padding: "8px 16px",
-    fontSize: "14px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#ef4444",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  deleteBtnDisabled: {
-    backgroundColor: "#374151",
-    cursor: "not-allowed",
-    opacity: 0.6,
-  },
-};
-
-const promptModalStyles: Record<string, React.CSSProperties> = {
-  modal: {
-    backgroundColor: "#16213e",
-    borderRadius: "8px",
-    padding: "20px",
-    minWidth: "300px",
-  },
-  title: {
-    fontSize: "16px",
-    fontWeight: 600,
-    marginBottom: "12px",
-    color: "#eee",
-  },
-  input: {
-    width: "100%",
-    padding: "10px",
-    fontSize: "14px",
-    borderRadius: "4px",
-    border: "1px solid #0f3460",
-    backgroundColor: "#1a1a2e",
-    color: "#eee",
-    marginBottom: "12px",
-    boxSizing: "border-box",
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "8px",
-  },
-  cancelBtn: {
-    padding: "8px 16px",
-    fontSize: "14px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#374151",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  submitBtn: {
-    padding: "8px 16px",
-    fontSize: "14px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#4f46e5",
-    color: "#fff",
-    cursor: "pointer",
-  },
-};
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    width: "100vw",
-    height: "100vh",
-    backgroundColor: "#1a1a2e",
-    color: "#eee",
-    fontFamily: "system-ui, -apple-system, sans-serif",
-    padding: "16px",
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "16px",
-    padding: "0 4px",
-    flexShrink: 0,
-  },
-  title: {
-    fontSize: "18px",
-    fontWeight: 600,
-    margin: 0,
-  },
-  addButton: {
-    padding: "6px 12px",
-    fontSize: "13px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#10b981",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  clearEmptyButton: {
-    padding: "6px 12px",
-    fontSize: "13px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#f59e0b",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  deleteButton: {
-    padding: "6px 12px",
-    fontSize: "13px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#ef4444",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  undoButton: {
-    padding: "6px 12px",
-    fontSize: "13px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#4f46e5",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  undoButtonDisabled: {
-    backgroundColor: "#374151",
-    cursor: "not-allowed",
-    opacity: 0.6,
-  },
-  importButton: {
-    padding: "6px 12px",
-    fontSize: "13px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#6366f1",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  exportButton: {
-    padding: "6px 12px",
-    fontSize: "13px",
-    borderRadius: "6px",
-    border: "none",
-    backgroundColor: "#6366f1",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  selectionBar: {
-    padding: "12px",
-    marginBottom: "12px",
-    backgroundColor: "#4f46e5",
-    borderRadius: "6px",
-    fontSize: "14px",
-    textAlign: "center",
-    flexShrink: 0,
-  },
-  columnsContainer: {
-    display: "flex",
-    gap: "16px",
-    flex: 1,
-    overflow: "hidden",
-    minHeight: 0,
-  },
-  column: {
-    minWidth: "280px",
-    maxWidth: "350px",
-    flex: 1,
-    backgroundColor: "#16213e",
-    borderRadius: "8px",
-    border: "2px solid transparent",
-    transition: "border-color 0.2s",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-  },
-  columnDragOver: {
-    borderColor: "#4f46e5",
-  },
-  columnHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "12px",
-    borderBottom: "1px solid #0f3460",
-    flexShrink: 0,
-  },
-  columnNav: {
-    display: "flex",
-    flex: 1,
-    alignItems: "center",
-    gap: "4px",
-    overflow: "hidden",
-  },
-  folderPath: {
-    fontSize: "13px",
-    color: "#93c5fd",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    flex: 1,
-  },
-  pathSeparator: {
-    color: "#6b7280",
-  },
-  parentFolder: {
-    color: "#9ca3af",
-  },
-  currentFolder: {
-    color: "#93c5fd",
-    fontWeight: 500,
-  },
-  columnActions: {
-    display: "flex",
-    gap: "4px",
-    flexShrink: 0,
-  },
-  backButton: {
-    padding: "8px 12px",
-    fontSize: "14px",
-    borderRadius: "4px",
-    border: "none",
-    backgroundColor: "#374151",
-    color: "#fff",
-    cursor: "pointer",
-    flexShrink: 0,
-  },
-  newFolderButton: {
-    padding: "6px 8px",
-    fontSize: "12px",
-    borderRadius: "4px",
-    border: "none",
-    backgroundColor: "#10b981",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  renameButton: {
-    padding: "6px 8px",
-    fontSize: "12px",
-    borderRadius: "4px",
-    border: "none",
-    backgroundColor: "#6366f1",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  deleteFolderButton: {
-    padding: "6px 8px",
-    fontSize: "12px",
-    borderRadius: "4px",
-    border: "none",
-    backgroundColor: "#6b7280",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  removeButton: {
-    width: "28px",
-    height: "28px",
-    borderRadius: "4px",
-    border: "none",
-    backgroundColor: "#ef4444",
-    color: "#fff",
-    cursor: "pointer",
-    fontSize: "16px",
-    lineHeight: 1,
-  },
-  bookmarkTree: {
-    padding: "8px",
-    flex: 1,
-    overflowY: "auto",
-    minHeight: 0,
-  },
-  folderItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    padding: "6px 8px",
-    cursor: "pointer",
-    borderRadius: "4px",
-    transition: "background-color 0.15s",
-  },
-  expandIcon: {
-    fontSize: "10px",
-    color: "#6b7280",
-    width: "14px",
-  },
-  folderIcon: {
-    fontSize: "14px",
-  },
-  folderName: {
-    fontSize: "13px",
-    color: "#93c5fd",
-  },
-  bookmarkItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "6px 8px",
-    marginBottom: "2px",
-    backgroundColor: "#1a1a2e",
-    borderRadius: "4px",
-    border: "1px solid transparent",
-    transition: "all 0.15s",
-  },
-  bookmarkItemSelected: {
-    backgroundColor: "#1f2937",
-    borderColor: "#4f46e5",
-  },
-  checkbox: {
-    width: "16px",
-    height: "16px",
-    cursor: "pointer",
-  },
-  favicon: {
-    width: "16px",
-    height: "16px",
-    borderRadius: "2px",
-  },
-  bookmarkLink: {
-    flex: 1,
-    color: "#93c5fd",
-    textDecoration: "none",
-    fontSize: "13px",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  itemRenameBtn: {
-    padding: "4px 6px",
-    fontSize: "11px",
-    borderRadius: "4px",
-    border: "none",
-    backgroundColor: "#374151",
-    color: "#9ca3af",
-    cursor: "pointer",
-    opacity: 0.7,
-  },
-};
