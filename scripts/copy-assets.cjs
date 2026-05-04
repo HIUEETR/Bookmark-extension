@@ -40,6 +40,14 @@ if (fs.existsSync(srcIcons)) {
   });
 }
 
+// Copy background service worker to dist
+const bgSrc = path.join(__dirname, '..', 'src', 'background.js');
+const bgDest = path.join(distDir, 'background.js');
+if (fs.existsSync(bgSrc)) {
+  fs.copyFileSync(bgSrc, bgDest);
+  console.log('Copied: background.js');
+}
+
 // Write manifest without icon requirements (let Edge use default)
 const manifest = {
   name: "My Bookmark",
@@ -47,9 +55,10 @@ const manifest = {
   version: "1.0.0",
   description: "Multi-column bookmark manager",
   manifest_version: 3,
-  chrome_url_overrides: {
-    newtab: "sidepanel.html"
+  background: {
+    service_worker: "background.js"
   },
+  action: {},
   permissions: [
     "bookmarks",
     "storage"
