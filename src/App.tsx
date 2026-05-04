@@ -46,31 +46,39 @@ function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolderModalP
         <h2 style={modalStyles.title}>Empty Folders</h2>
         <p style={modalStyles.subtitle}>Select folders to KEEP (unchecked will be deleted):</p>
         <div style={modalStyles.list}>
-          {emptyFolders.map((folder) => (
-            <div
-              key={folder.id}
-              style={{
-                ...modalStyles.item,
-                ...(selected.has(folder.id) ? {} : modalStyles.itemExcluded),
-              }}
-              onClick={() => toggleSelect(folder.id)}
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(folder.id)}
-                onChange={() => toggleSelect(folder.id)}
-                style={{ marginRight: "8px" }}
-              />
-              <span>{folder.title}</span>
-              <span style={modalStyles.path}>{folder.path}</span>
-            </div>
-          ))}
+          {emptyFolders.length === 0 ? (
+            <div style={modalStyles.empty}>No empty folders found</div>
+          ) : (
+            emptyFolders.map((folder) => (
+              <div
+                key={folder.id}
+                style={{
+                  ...modalStyles.item,
+                  ...(selected.has(folder.id) ? {} : modalStyles.itemExcluded),
+                }}
+                onClick={() => toggleSelect(folder.id)}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(folder.id)}
+                  onChange={() => toggleSelect(folder.id)}
+                  style={{ marginRight: "8px" }}
+                />
+                <span>{folder.title}</span>
+                <span style={modalStyles.path}>{folder.path}</span>
+              </div>
+            ))
+          )}
         </div>
         <div style={modalStyles.actions}>
           <button onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
           <button
             onClick={handleDelete}
-            style={modalStyles.deleteBtn}
+            disabled={emptyFolders.length === 0 || selected.size === emptyFolders.length}
+            style={{
+              ...modalStyles.deleteBtn,
+              ...(emptyFolders.length === 0 || selected.size === emptyFolders.length ? modalStyles.deleteBtnDisabled : {}),
+            }}
           >
             Delete Others ({emptyFolders.length - selected.size})
           </button>
@@ -95,7 +103,7 @@ export default function App() {
 
   async function loadBookmarks() {
     const tree = await getTree();
-    const folders = extractFolders(tree);
+    const folders = extractAllFolders(tree);
     const savedState = loadSavedState();
 
     let columnData: ColumnData[];
@@ -112,13 +120,14 @@ export default function App() {
         };
       });
     } else {
-      columnData = folders.slice(0, 2).map((f, i) => ({
+      const roots = getRootFolders(tree);
+      columnData = roots.slice(0, 2).map((f, i) => ({
         id: `col-${Date.now()}-${i}`,
         folderId: f.id,
-        folderTitle: f.title,
-        tree: findFolderTree(tree, f.id) || [],
+        folderTitle: f.title || "Bookmark Bar",
+        tree: f.children || [],
         expandedFolders: new Set<string>(),
-        parentChain: buildParentChain(tree, f.id),
+        parentChain: [{ id: f.id, title: f.title || "Bookmark Bar" }],
       }));
     }
 
@@ -126,17 +135,40 @@ export default function App() {
     setColumns(columnData);
   }
 
-  function extractFolders(nodes: BookmarkNode[], pathPrefix = ""): { id: string; title: string; path: string }[] {
+  function getRootFolders(nodes: BookmarkNode[]): BookmarkNode[] {
+    for (const node of nodes) {
+      if (node.id === "0" && node.children) {
+        return node.children.filter((n) => !n.url);
+      }
+    }
+    return [];
+  }
+
+  function extractAllFolders(nodes: BookmarkNode[], pathPrefix = ""): { id: string; title: string; path: string }[] {
     const result: { id: string; title: string; path: string }[] = [];
     for (const node of nodes) {
       if (node.id === "0" && node.children) {
-        result.push(...extractFolders(node.children, ""));
+        result.push(...extractAllFolders(node.children, ""));
       } else if (!node.url && node.id !== "0") {
         const path = pathPrefix ? `${pathPrefix} / ${node.title}` : node.title;
         result.push({ id: node.id, title: node.title || "(root)", path });
+        if (node.children) {
+          result.push(...extractAllFolders(node.children, path));
+        }
       }
     }
     return result;
+  }
+
+  function findFolderTree(tree: BookmarkNode[], folderId: string): BookmarkNode[] | null {
+    for (const node of tree) {
+      if (node.id === folderId) return node.children || [];
+      if (node.children) {
+        const found = findFolderTree(node.children, folderId);
+        if (found) return found;
+      }
+    }
+    return null;
   }
 
   function buildParentChain(tree: BookmarkNode[], folderId: string): { id: string; title: string }[] {
@@ -158,49 +190,36 @@ export default function App() {
     return chain;
   }
 
-  function getRootFolders(nodes: BookmarkNode[]): BookmarkNode[] {
-    for (const node of nodes) {
-      if (node.id === "0" && node.children) {
-        return node.children.filter((n) => !n.url);
-      }
-    }
-    return [];
-  }
-
-  function findFolderTree(tree: BookmarkNode[], folderId: string): BookmarkNode[] | null {
-    for (const node of tree) {
-      if (node.id === folderId) return node.children || [];
-      if (node.children) {
-        const found = findFolderTree(node.children, folderId);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
-
-  function isEmptyFolder(node: BookmarkNode): boolean {
+  function isFolderEmpty(node: BookmarkNode): boolean {
     if (node.url) return false;
     if (!node.children || node.children.length === 0) return true;
-    // A folder is empty only if all its children are empty folders (no bookmarks directly in it)
     const hasDirectBookmarks = node.children.some((child) => child.url);
     if (hasDirectBookmarks) return false;
-    // Check if all children are empty subfolders
-    return node.children.every((child) => isEmptyFolder(child));
+    return node.children.every((child) => isFolderEmpty(child));
   }
 
-  function findEmptyFolders(nodes: BookmarkNode[], path = ""): { id: string; title: string; path: string }[] {
+  function findEmptyFoldersInTree(tree: BookmarkNode[]): { id: string; title: string; path: string }[] {
     const result: { id: string; title: string; path: string }[] = [];
-    for (const node of nodes) {
-      if (!node.url && node.id !== "0") {
-        const nodePath = path ? `${path} / ${node.title}` : node.title;
-        if (isEmptyFolder(node)) {
-          result.push({ id: node.id, title: node.title || "(root)", path: nodePath });
+
+    const traverse = (nodes: BookmarkNode[], path: string) => {
+      for (const node of nodes) {
+        if (node.id === "0") {
+          if (node.children) traverse(node.children, path);
+          continue;
         }
-        if (node.children) {
-          result.push(...findEmptyFolders(node.children, nodePath));
+        if (!node.url) {
+          const nodePath = path ? `${path} / ${node.title}` : node.title;
+          if (isFolderEmpty(node)) {
+            result.push({ id: node.id, title: node.title || "(root)", path: nodePath });
+          }
+          if (node.children) {
+            traverse(node.children, nodePath);
+          }
         }
       }
-    }
+    };
+
+    traverse(tree, "");
     return result;
   }
 
@@ -228,7 +247,7 @@ export default function App() {
 
   const showClearEmptyModal = async () => {
     const tree = await getTree();
-    const empty = findEmptyFolders(tree);
+    const empty = findEmptyFoldersInTree(tree);
     setEmptyFolders(empty);
     setShowEmptyModal(true);
   };
@@ -247,18 +266,15 @@ export default function App() {
 
   const addColumn = () => {
     const usedFolderIds = new Set(columns.map((c) => c.folderId));
-    const availableRoots = getRootFolders(columns[0]?.tree || []);
-    const availableFolders = allFolders.filter(
-      (f) => !usedFolderIds.has(f.id)
-    );
-    if (availableFolders.length === 0 && availableRoots.length === 0) return;
+    const available = allFolders.filter((f) => !usedFolderIds.has(f.id));
+    if (available.length === 0) return;
 
     getTree().then((tree) => {
-      const newFolderId = availableFolders[0]?.id || availableRoots[0]?.id || "";
+      const newFolderId = available[0].id;
       const newColumn: ColumnData = {
         id: `col-${Date.now()}`,
         folderId: newFolderId,
-        folderTitle: availableFolders[0]?.title || availableRoots[0]?.title || "Folder",
+        folderTitle: available[0].title,
         tree: findFolderTree(tree, newFolderId) || [],
         expandedFolders: new Set(),
         parentChain: buildParentChain(tree, newFolderId),
@@ -279,6 +295,7 @@ export default function App() {
 
   const createNewFolder = (columnId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     const column = columns.find((c) => c.id === columnId);
     if (!column) return;
 
@@ -288,54 +305,78 @@ export default function App() {
     chrome.bookmarks.create(
       { parentId: column.folderId, title: folderName },
       () => {
-        loadBookmarks();
+        getTree().then((tree) => {
+          setColumns((prev) => {
+            const newColumns = prev.map((col) => {
+              if (col.id === columnId) {
+                return {
+                  ...col,
+                  tree: findFolderTree(tree, col.folderId) || [],
+                };
+              }
+              return col;
+            });
+            return newColumns;
+          });
+        });
       }
     );
   };
 
   const deleteCurrentFolder = (columnId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     const column = columns.find((c) => c.id === columnId);
     if (!column) return;
+
+    const currentTitle = column.parentChain.length > 0
+      ? column.parentChain[column.parentChain.length - 1].title
+      : column.folderTitle;
 
     const hasContent = column.tree.some((node) => node.url || (node.children && node.children.length > 0));
 
     if (hasContent) {
-      const confirm1 = confirm("Are you sure you want to delete this folder? All contents will be deleted.\n\nClick OK to continue.");
+      const confirm1 = confirm(`Are you sure you want to delete "${currentTitle}"?\n\nAll contents will be deleted.\n\nClick OK to continue.`);
       if (!confirm1) return;
 
-      const confirm2 = confirm("This folder contains bookmarks. Are you ABSOLUTELY sure?\n\nClick OK to delete.");
+      const confirm2 = confirm(`This folder contains bookmarks. Are you ABSOLUTELY sure?\n\nClick OK to delete.`);
       if (!confirm2) return;
 
-      const confirm3 = confirm("FINAL WARNING: This action cannot be undone!\n\nClick OK to permanently delete.");
+      const confirm3 = confirm(`FINAL WARNING: "${currentTitle}" will be permanently deleted!\n\nClick OK to continue.`);
       if (!confirm3) return;
     } else {
-      const confirmed = confirm(`Delete folder "${column.folderTitle}"?`);
+      const confirmed = confirm(`Delete folder "${currentTitle}"?`);
       if (!confirmed) return;
     }
 
     chrome.bookmarks.removeTree(column.folderId, () => {
-      const parentChain = column.parentChain;
-      if (parentChain.length > 1) {
-        const newParentId = parentChain[parentChain.length - 2].id;
-        changeColumnFolder(columnId, newParentId);
+      if (column.parentChain.length > 1) {
+        const newParentId = column.parentChain[column.parentChain.length - 2].id;
+        changeColumnFolderDirect(columnId, newParentId);
       } else {
-        loadBookmarks();
+        const roots = getRootFolders([]);
+        getTree().then((tree) => {
+          const allRoots = getRootFolders(tree);
+          if (allRoots.length > 0) {
+            changeColumnFolderDirect(columnId, allRoots[0].id);
+          }
+        });
       }
     });
   };
 
-  const changeColumnFolder = (columnId: string, newFolderId: string) => {
+  const changeColumnFolderDirect = (columnId: string, newFolderId: string) => {
     getTree().then((tree) => {
       const parentChain = buildParentChain(tree, newFolderId);
       const folder = allFolders.find((f) => f.id === newFolderId);
+      const title = parentChain.length > 0 ? parentChain[parentChain.length - 1].title : (folder?.title || "Unknown");
       setColumns((prev) => {
         const newColumns = prev.map((col) => {
           if (col.id === columnId) {
             return {
               ...col,
               folderId: newFolderId,
-              folderTitle: folder?.title || "Unknown",
+              folderTitle: title,
               tree: findFolderTree(tree, newFolderId) || [],
               expandedFolders: new Set<string>(),
               parentChain,
@@ -349,35 +390,16 @@ export default function App() {
     });
   };
 
+  const changeColumnFolder = (columnId: string, newFolderId: string) => {
+    changeColumnFolderDirect(columnId, newFolderId);
+  };
+
   const goBack = (columnId: string) => {
-    setColumns((prev) => {
-      const newColumns = prev.map((col) => {
-        if (col.id === columnId && col.parentChain.length > 1) {
-          const newChain = col.parentChain.slice(0, -1);
-          const parentId = newChain[newChain.length - 1].id;
-          const parent = newChain[newChain.length - 1];
-          getTree().then((tree) => {
-            setColumns((prev2) => {
-              return prev2.map((c) => {
-                if (c.id === columnId) {
-                  return {
-                    ...c,
-                    folderId: parentId,
-                    folderTitle: parent.title,
-                    tree: findFolderTree(tree, parentId) || [],
-                    parentChain: newChain,
-                  };
-                }
-                return c;
-              });
-            });
-          });
-          return col;
-        }
-        return col;
-      });
-      return newColumns;
-    });
+    const column = columns.find((c) => c.id === columnId);
+    if (!column || column.parentChain.length <= 1) return;
+
+    const parentId = column.parentChain[column.parentChain.length - 2].id;
+    changeColumnFolderDirect(columnId, parentId);
   };
 
   const toggleFolder = (columnId: string, folderId: string) => {
@@ -436,18 +458,16 @@ export default function App() {
 
   const moveSingleBookmark = async (bookmarkId: string, targetColumnId: string, targetIndex: number) => {
     let sourceParentId = "";
-    let sourceIndex = -1;
 
     for (const col of columns) {
-      const idx = findBookmarkIndex(col.tree, bookmarkId);
-      if (idx !== -1) {
+      const found = findBookmarkInTree(col.tree, bookmarkId);
+      if (found) {
         sourceParentId = col.folderId;
-        sourceIndex = idx;
         break;
       }
     }
 
-    if (sourceParentId === "") return;
+    if (!sourceParentId) return;
 
     const targetColumn = columns.find((c) => c.id === targetColumnId);
     if (!targetColumn) return;
@@ -455,7 +475,7 @@ export default function App() {
     const record: MoveRecord = {
       bookmarkId,
       fromParentId: sourceParentId,
-      fromIndex: sourceIndex,
+      fromIndex: 0,
       toParentId: targetColumn.folderId,
       toIndex: targetIndex,
     };
@@ -470,53 +490,32 @@ export default function App() {
     }
   };
 
+  const findBookmarkInTree = (tree: BookmarkNode[], id: string): boolean => {
+    for (const node of tree) {
+      if (node.id === id) return true;
+      if (node.children) {
+        if (findBookmarkInTree(node.children, id)) return true;
+      }
+    }
+    return false;
+  };
+
   const moveSelectedBookmarks = async (targetColumnId: string) => {
     const targetColumn = columns.find((c) => c.id === targetColumnId);
     if (!targetColumn) return;
 
-    const bookmarks = flattenTree(targetColumn.tree);
-    const targetIndex = bookmarks.length;
+    const targetIndex = targetColumn.tree.length;
 
     for (const id of selectedIds) {
-      let sourceParentId = "";
-      for (const col of columns) {
-        if (findBookmarkIndex(col.tree, id) !== -1) {
-          sourceParentId = col.folderId;
-          break;
-        }
-      }
-      if (sourceParentId) {
-        try {
-          await moveBookmark(id, targetColumn.folderId, targetIndex);
-        } catch (err) {
-          console.error("Failed to move bookmark:", err);
-        }
+      try {
+        await moveBookmark(id, targetColumn.folderId, targetIndex);
+      } catch (err) {
+        console.error("Failed to move bookmark:", err);
       }
     }
 
     loadBookmarks();
     setSelectedIds(new Set());
-  };
-
-  const findBookmarkIndex = (tree: BookmarkNode[], id: string): number => {
-    for (let i = 0; i < tree.length; i++) {
-      if (tree[i].id === id) return i;
-      if (tree[i].children && tree[i].children.length > 0) {
-        const idx = findBookmarkIndex(tree[i].children, id);
-        if (idx !== -1) return idx;
-      }
-    }
-    return -1;
-  };
-
-  const flattenTree = (nodes: BookmarkNode[]): BookmarkNode[] => {
-    const result: BookmarkNode[] = [];
-    for (const node of nodes) {
-      if (node.url) {
-        result.push(node);
-      }
-    }
-    return result;
   };
 
   const handleUndo = async () => {
@@ -606,7 +605,11 @@ export default function App() {
                       {i > 0 && <span style={styles.pathSeparator}> / </span>}
                       <span
                         style={i === column.parentChain.length - 1 ? styles.currentFolder : styles.parentFolder}
-                        onClick={() => changeColumnFolder(column.id, p.id)}
+                        onClick={() => {
+                          if (i < column.parentChain.length - 1) {
+                            changeColumnFolder(column.id, p.id);
+                          }
+                        }}
                         onMouseEnter={(e) => {
                           if (i < column.parentChain.length - 1) {
                             (e.target as HTMLSpanElement).style.textDecoration = "underline";
@@ -656,7 +659,6 @@ export default function App() {
                 selectedIds={selectedIds}
                 onToggle={(id) => toggleFolder(column.id, id)}
                 onSelect={toggleSelect}
-                onDrop={moveSingleBookmark}
                 getFaviconUrl={getFaviconUrl}
                 onNavigate={(folderId) => changeColumnFolder(column.id, folderId)}
               />
@@ -682,7 +684,6 @@ interface TreeViewProps {
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
-  onDrop: (bookmarkId: string, columnId: string, index: number) => void;
   getFaviconUrl: (url: string) => string;
   onNavigate?: (folderId: string) => void;
   depth?: number;
@@ -694,7 +695,6 @@ function TreeView({
   selectedIds,
   onToggle,
   onSelect,
-  onDrop,
   getFaviconUrl,
   onNavigate,
   depth = 0,
@@ -711,7 +711,8 @@ function TreeView({
             <div key={node.id}>
               <div
                 style={styles.folderItem}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (hasChildren) {
                     onToggle(node.id);
                   }
@@ -731,7 +732,6 @@ function TreeView({
                   selectedIds={selectedIds}
                   onToggle={onToggle}
                   onSelect={onSelect}
-                  onDrop={onDrop}
                   getFaviconUrl={getFaviconUrl}
                   onNavigate={onNavigate}
                   depth={depth + 1}
@@ -821,6 +821,11 @@ const modalStyles: Record<string, React.CSSProperties> = {
     overflowY: "auto",
     marginBottom: "16px",
   },
+  empty: {
+    padding: "20px",
+    textAlign: "center",
+    color: "#6b7280",
+  },
   item: {
     display: "flex",
     alignItems: "center",
@@ -834,9 +839,6 @@ const modalStyles: Record<string, React.CSSProperties> = {
     backgroundColor: "#450a0a",
     textDecoration: "line-through",
     opacity: 0.7,
-  },
-  itemSelected: {
-    backgroundColor: "#374151",
   },
   path: {
     marginLeft: "8px",
@@ -886,6 +888,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "system-ui, -apple-system, sans-serif",
     padding: "16px",
     boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
   },
   header: {
     display: "flex",
@@ -893,6 +897,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     marginBottom: "16px",
     padding: "0 4px",
+    flexShrink: 0,
   },
   title: {
     fontSize: "18px",
@@ -938,11 +943,14 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "6px",
     fontSize: "14px",
     textAlign: "center",
+    flexShrink: 0,
   },
   columnsContainer: {
     display: "flex",
     gap: "16px",
+    flex: 1,
     overflowX: "auto",
+    minHeight: 0,
   },
   column: {
     minWidth: "280px",
@@ -952,6 +960,9 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "8px",
     border: "2px solid transparent",
     transition: "border-color 0.2s",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
   },
   columnDragOver: {
     borderColor: "#4f46e5",
@@ -962,16 +973,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: "8px",
     padding: "12px",
     borderBottom: "1px solid #0f3460",
-  },
-  folderSelect: {
-    flex: 1,
-    padding: "8px",
-    fontSize: "14px",
-    borderRadius: "4px",
-    border: "1px solid #0f3460",
-    backgroundColor: "#1a1a2e",
-    color: "#eee",
-    cursor: "pointer",
+    flexShrink: 0,
   },
   columnNav: {
     display: "flex",
@@ -979,10 +981,6 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     gap: "4px",
     overflow: "hidden",
-  },
-  columnActions: {
-    display: "flex",
-    gap: "4px",
   },
   folderPath: {
     fontSize: "13px",
@@ -1002,6 +1000,11 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#93c5fd",
     fontWeight: 500,
   },
+  columnActions: {
+    display: "flex",
+    gap: "4px",
+    flexShrink: 0,
+  },
   backButton: {
     padding: "8px 12px",
     fontSize: "14px",
@@ -1010,6 +1013,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "#374151",
     color: "#fff",
     cursor: "pointer",
+    flexShrink: 0,
   },
   newFolderButton: {
     padding: "6px 8px",
@@ -1042,9 +1046,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   bookmarkTree: {
     padding: "8px",
-    minHeight: "300px",
-    maxHeight: "calc(100vh - 200px)",
+    flex: 1,
     overflowY: "auto",
+    minHeight: 0,
   },
   folderItem: {
     display: "flex",
