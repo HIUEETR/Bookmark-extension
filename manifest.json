@@ -4,9 +4,8 @@
   "version": "1.0.0",
   "description": "Multi-column bookmark manager with drag & drop and undo support",
   "manifest_version": 3,
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "My Bookmark"
+  "chrome_url_overrides": {
+    "newtab": "sidepanel.html"
   },
   "permissions": [
     "bookmarks",

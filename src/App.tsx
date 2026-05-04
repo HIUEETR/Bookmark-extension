@@ -8,12 +8,13 @@ interface ColumnData {
   folderTitle: string;
   tree: BookmarkNode[];
   expandedFolders: Set<string>;
+  parentChain: { id: string; title: string }[];
 }
 
 const STORAGE_KEY = "my-bookmark-state";
 
 interface SavedState {
-  columns: { id: string; folderId: string; folderTitle: string; expandedFolders: string[] }[];
+  columns: { id: string; folderId: string; folderTitle: string; expandedFolders: string[]; parentChain: { id: string; title: string }[] }[];
 }
 
 export default function App() {
@@ -42,6 +43,7 @@ export default function App() {
           folderTitle: folder?.title || col.folderTitle,
           tree: findFolderTree(tree, col.folderId) || [],
           expandedFolders: new Set(col.expandedFolders),
+          parentChain: col.parentChain || [],
         };
       });
     } else {
@@ -51,6 +53,7 @@ export default function App() {
         folderTitle: f.title,
         tree: findFolderTree(tree, f.id) || [],
         expandedFolders: new Set<string>(),
+        parentChain: buildParentChain(tree, f.id),
       }));
     }
 
@@ -66,12 +69,37 @@ export default function App() {
       } else if (!node.url && node.id !== "0") {
         const path = pathPrefix ? `${pathPrefix} / ${node.title}` : node.title;
         result.push({ id: node.id, title: node.title || "(root)", path });
-        if (node.children) {
-          result.push(...extractFolders(node.children, path));
-        }
       }
     }
     return result;
+  }
+
+  function buildParentChain(tree: BookmarkNode[], folderId: string): { id: string; title: string }[] {
+    const chain: { id: string; title: string }[] = [];
+    const find = (nodes: BookmarkNode[], target: string, path: { id: string; title: string }[]): boolean => {
+      for (const node of nodes) {
+        const currentPath = [...path, { id: node.id, title: node.title || "(root)" }];
+        if (node.id === target) {
+          chain.push(...currentPath);
+          return true;
+        }
+        if (node.children) {
+          if (find(node.children, target, currentPath)) return true;
+        }
+      }
+      return false;
+    };
+    find(tree, folderId, []);
+    return chain;
+  }
+
+  function getRootFolders(nodes: BookmarkNode[]): BookmarkNode[] {
+    for (const node of nodes) {
+      if (node.id === "0" && node.children) {
+        return node.children.filter((n) => !n.url);
+      }
+    }
+    return [];
   }
 
   function findFolderTree(tree: BookmarkNode[], folderId: string): BookmarkNode[] | null {
@@ -101,28 +129,35 @@ export default function App() {
         folderId: col.folderId,
         folderTitle: col.folderTitle,
         expandedFolders: Array.from(col.expandedFolders),
+        parentChain: col.parentChain,
       })),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
   const addColumn = () => {
+    const usedFolderIds = new Set(columns.map((c) => c.folderId));
+    const availableRoots = getRootFolders(columns[0]?.tree || []);
     const availableFolders = allFolders.filter(
-      (f) => !columns.some((c) => c.folderId === f.id)
+      (f) => !usedFolderIds.has(f.id)
     );
-    if (availableFolders.length === 0) return;
+    if (availableFolders.length === 0 && availableRoots.length === 0) return;
 
-    const newColumn: ColumnData = {
-      id: `col-${Date.now()}`,
-      folderId: availableFolders[0].id,
-      folderTitle: availableFolders[0].title,
-      tree: findFolderTree(columns[0]?.tree || [], availableFolders[0].id) || [],
-      expandedFolders: new Set(),
-    };
+    getTree().then((tree) => {
+      const newFolderId = availableFolders[0]?.id || availableRoots[0]?.id || "";
+      const newColumn: ColumnData = {
+        id: `col-${Date.now()}`,
+        folderId: newFolderId,
+        folderTitle: availableFolders[0]?.title || availableRoots[0]?.title || "Folder",
+        tree: findFolderTree(tree, newFolderId) || [],
+        expandedFolders: new Set(),
+        parentChain: buildParentChain(tree, newFolderId),
+      };
 
-    const newColumns = [...columns, newColumn];
-    setColumns(newColumns);
-    saveState(newColumns);
+      const newColumns = [...columns, newColumn];
+      setColumns(newColumns);
+      saveState(newColumns);
+    });
   };
 
   const removeColumn = (columnId: string) => {
@@ -134,16 +169,18 @@ export default function App() {
 
   const changeColumnFolder = (columnId: string, newFolderId: string) => {
     getTree().then((tree) => {
+      const parentChain = buildParentChain(tree, newFolderId);
+      const folder = allFolders.find((f) => f.id === newFolderId);
       setColumns((prev) => {
         const newColumns = prev.map((col) => {
           if (col.id === columnId) {
-            const folder = allFolders.find((f) => f.id === newFolderId);
             return {
               ...col,
               folderId: newFolderId,
               folderTitle: folder?.title || "Unknown",
               tree: findFolderTree(tree, newFolderId) || [],
               expandedFolders: new Set<string>(),
+              parentChain,
             };
           }
           return col;
@@ -151,6 +188,37 @@ export default function App() {
         saveState(newColumns);
         return newColumns;
       });
+    });
+  };
+
+  const goBack = (columnId: string) => {
+    setColumns((prev) => {
+      const newColumns = prev.map((col) => {
+        if (col.id === columnId && col.parentChain.length > 1) {
+          const newChain = col.parentChain.slice(0, -1);
+          const parentId = newChain[newChain.length - 1].id;
+          const parent = newChain[newChain.length - 1];
+          getTree().then((tree) => {
+            setColumns((prev2) => {
+              return prev2.map((c) => {
+                if (c.id === columnId) {
+                  return {
+                    ...c,
+                    folderId: parentId,
+                    folderTitle: parent.title,
+                    tree: findFolderTree(tree, parentId) || [],
+                    parentChain: newChain,
+                  };
+                }
+                return c;
+              });
+            });
+          });
+          return col;
+        }
+        return col;
+      });
+      return newColumns;
     });
   };
 
@@ -361,17 +429,30 @@ export default function App() {
             onDrop={(e) => handleColumnDrop(e, column.id)}
           >
             <div style={styles.columnHeader}>
-              <select
-                value={column.folderId}
-                onChange={(e) => changeColumnFolder(column.id, e.target.value)}
-                style={styles.folderSelect}
-              >
-                {allFolders.map((folder) => (
-                  <option key={folder.id} value={folder.id}>
-                    {folder.title}
-                  </option>
-                ))}
-              </select>
+              <div style={styles.columnNav}>
+                {column.parentChain.length > 1 && (
+                  <button
+                    onClick={() => goBack(column.id)}
+                    style={styles.backButton}
+                    title="Go back"
+                  >
+                    ←
+                  </button>
+                )}
+                <select
+                  value={column.folderId}
+                  onChange={(e) => changeColumnFolder(column.id, e.target.value)}
+                  style={styles.folderSelect}
+                >
+                  {allFolders
+                    .filter((f) => !f.path.includes("/"))
+                    .map((folder) => (
+                      <option key={folder.id} value={folder.id}>
+                        {folder.title}
+                      </option>
+                    ))}
+                </select>
+              </div>
               {columns.length > 2 && (
                 <button
                   onClick={() => removeColumn(column.id)}
@@ -391,6 +472,7 @@ export default function App() {
                 onSelect={toggleSelect}
                 onDrop={moveSingleBookmark}
                 getFaviconUrl={getFaviconUrl}
+                onNavigate={(folderId) => changeColumnFolder(column.id, folderId)}
               />
             </div>
           </div>
@@ -408,7 +490,7 @@ interface TreeViewProps {
   onSelect: (id: string) => void;
   onDrop: (bookmarkId: string, columnId: string, index: number) => void;
   getFaviconUrl: (url: string) => string;
-  columnId?: string;
+  onNavigate?: (folderId: string) => void;
   depth?: number;
 }
 
@@ -420,7 +502,7 @@ function TreeView({
   onSelect,
   onDrop,
   getFaviconUrl,
-  columnId = "",
+  onNavigate,
   depth = 0,
 }: TreeViewProps) {
   return (
@@ -430,13 +512,21 @@ function TreeView({
         const isExpanded = expandedFolders.has(node.id);
 
         if (isFolder) {
+          const hasChildren = node.children && node.children.length > 0;
           return (
             <div key={node.id}>
               <div
                 style={styles.folderItem}
-                onClick={() => onToggle(node.id)}
+                onClick={() => {
+                  if (hasChildren) {
+                    onToggle(node.id);
+                  }
+                  onNavigate?.(node.id);
+                }}
               >
-                <span style={styles.expandIcon}>{isExpanded ? "▼" : "▶"}</span>
+                <span style={styles.expandIcon}>
+                  {hasChildren ? (isExpanded ? "▼" : "▶") : ""}
+                </span>
                 <span style={styles.folderIcon}>📁</span>
                 <span style={styles.folderName}>{node.title || "(root)"}</span>
               </div>
@@ -449,7 +539,7 @@ function TreeView({
                   onSelect={onSelect}
                   onDrop={onDrop}
                   getFaviconUrl={getFaviconUrl}
-                  columnId={columnId}
+                  onNavigate={onNavigate}
                   depth={depth + 1}
                 />
               )}
@@ -584,6 +674,20 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #0f3460",
     backgroundColor: "#1a1a2e",
     color: "#eee",
+    cursor: "pointer",
+  },
+  columnNav: {
+    display: "flex",
+    flex: 1,
+    gap: "4px",
+  },
+  backButton: {
+    padding: "8px 12px",
+    fontSize: "14px",
+    borderRadius: "4px",
+    border: "none",
+    backgroundColor: "#374151",
+    color: "#fff",
     cursor: "pointer",
   },
   removeButton: {
