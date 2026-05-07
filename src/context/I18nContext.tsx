@@ -1,42 +1,56 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { en, zh, type Translations } from "../i18n";
-
-export type Locale = "en" | "zh";
+import type { Locale, LocaleSetting } from "../types";
+import { readStorage, writeStorage } from "../lib/storage";
 
 const locales: Record<Locale, Translations> = { en, zh };
 
 interface I18nContextValue {
   locale: Locale;
-  setLocale: (locale: Locale) => void;
+  localeSetting: LocaleSetting;
+  setLocaleSetting: (locale: LocaleSetting) => void;
   t: Translations;
 }
 
 const STORAGE_KEY = "my-bookmark-locale";
 
-function loadLocale(): Locale {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "en" || saved === "zh") return saved;
-  } catch {}
-  const lang = navigator.language;
-  return lang.startsWith("zh") ? "zh" : "en";
+function resolveLocale(setting: LocaleSetting): Locale {
+  if (setting === "system") return navigator.language.startsWith("zh") ? "zh" : "en";
+  return setting;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(loadLocale);
+  const [localeSetting, setLocaleSettingState] = useState<LocaleSetting>("system");
+  const [locale, setLocale] = useState<Locale>(resolveLocale("system"));
 
-  const setLocale = useCallback((newLocale: Locale) => {
-    setLocaleState(newLocale);
-    try {
-      localStorage.setItem(STORAGE_KEY, newLocale);
-    } catch {}
+  useEffect(() => {
+    readStorage<LocaleSetting>(STORAGE_KEY, "system").then((saved) => {
+      const valid = saved === "en" || saved === "zh" || saved === "system" ? saved : "system";
+      setLocaleSettingState(valid);
+      setLocale(resolveLocale(valid));
+    });
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      if (localeSetting === "system") setLocale(resolveLocale("system"));
+    };
+    window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", handler);
+    return () => window.matchMedia?.("(prefers-color-scheme: dark)").removeEventListener?.("change", handler);
+  }, [localeSetting]);
+
+  const setLocaleSetting = useCallback((newLocale: LocaleSetting) => {
+    setLocaleSettingState(newLocale);
+    setLocale(resolveLocale(newLocale));
+    void writeStorage(STORAGE_KEY, newLocale);
   }, []);
 
   const value: I18nContextValue = {
     locale,
-    setLocale,
+    localeSetting,
+    setLocaleSetting,
     t: locales[locale],
   };
 

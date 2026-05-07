@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { readStorage, writeStorage } from "../lib/storage";
 
 export type Theme = "dark" | "light";
 
@@ -9,18 +10,20 @@ interface ThemeContextValue {
 
 const STORAGE_KEY = "my-bookmark-theme";
 
-function loadTheme(): Theme {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "dark" || saved === "light") return saved;
-  } catch {}
+function systemTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [theme, setTheme] = useState<Theme>(systemTheme);
+
+  useEffect(() => {
+    readStorage<Theme | null>(STORAGE_KEY, null).then((saved) => {
+      if (saved === "dark" || saved === "light") setTheme(saved);
+    });
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -29,18 +32,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const toggleTheme = useCallback(() => {
     setTheme((prev) => {
       const next = prev === "dark" ? "light" : "dark";
-      try {
-        localStorage.setItem(STORAGE_KEY, next);
-      } catch {}
+      void writeStorage(STORAGE_KEY, next);
       return next;
     });
   }, []);
 
-  return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {

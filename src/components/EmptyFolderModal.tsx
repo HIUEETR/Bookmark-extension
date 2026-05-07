@@ -21,13 +21,12 @@ export function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolde
   };
 
   const handleDelete = () => {
-    const toDelete = emptyFolders.filter((f) => !selected.has(f.id)).map((f) => f.id);
-    onDelete(toDelete);
+    onDelete(Array.from(selected));
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="empty-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="empty-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <h2 className="empty-modal-title">{t.modal.emptyFolders.title}</h2>
         <p className="empty-modal-subtitle">{t.modal.emptyFolders.subtitle}</p>
         <div className="empty-modal-list">
@@ -35,10 +34,9 @@ export function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolde
             <div className="empty-modal-empty">{t.modal.emptyFolders.noFolders}</div>
           ) : (
             emptyFolders.map((folder) => (
-              <div
+              <label
                 key={folder.id}
-                className={`empty-modal-item${selected.has(folder.id) ? "" : " excluded"}`}
-                onClick={() => toggleSelect(folder.id)}
+                className={`empty-modal-item${selected.has(folder.id) ? " selected-delete" : ""}`}
               >
                 <input
                   type="checkbox"
@@ -48,7 +46,7 @@ export function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolde
                 />
                 <span>{folder.title}</span>
                 <span className="path">{folder.path}</span>
-              </div>
+              </label>
             ))
           )}
         </div>
@@ -58,10 +56,10 @@ export function EmptyFolderModal({ emptyFolders, onDelete, onClose }: EmptyFolde
           </button>
           <button
             onClick={handleDelete}
-            disabled={emptyFolders.length === 0}
+            disabled={selected.size === 0}
             className="btn btn-danger"
           >
-            {t.modal.emptyFolders.delete.replace("{{count}}", String(emptyFolders.length - selected.size))}
+            {t.modal.emptyFolders.delete.replace("{{count}}", String(selected.size))}
           </button>
         </div>
       </div>

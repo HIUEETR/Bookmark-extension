@@ -1,6 +1,12 @@
 import type { Translations } from "./en";
 
 const zh: Translations = {
+  common: {
+    close: "关闭",
+    delete: "删除",
+    deleteSelected: "删除选中项",
+    working: "处理中...",
+  },
   app: {
     title: "我的书签",
     loading: "正在加载书签...",
@@ -9,28 +15,56 @@ const zh: Translations = {
     addColumn: "添加列",
     clearEmpty: "清理空文件夹",
     deleteSelected: "删除 ({{count}})",
+    moveTo: "移动到...",
     import: "导入",
-    export: "导出",
+    exportJson: "导出 JSON",
+    exportHtml: "导出 HTML",
     undo: "撤销 ({{count}})",
+    duplicates: "重复项",
+    broken: "检查链接",
+    layouts: "布局",
+    trash: "回收站",
+    systemLocale: "自动",
+    toggleTheme: "切换主题",
   },
   selection: {
     count: "已选择 {{count}} 项",
-    dropHint: "拖放到列中以移动",
+    dropHint: "拖放到列中，或使用移动到...",
   },
   column: {
     newFolder: "新建文件夹",
     renameFolder: "重命名文件夹",
     deleteFolder: "删除文件夹",
     removeColumn: "移除列",
+    goBack: "返回",
   },
   tree: {
     rename: "重命名",
     root: "(根目录)",
   },
+  search: {
+    placeholder: "搜索标题、URL 或路径...",
+    noResults: "没有结果",
+  },
+  stats: {
+    bookmarks: "书签",
+    folders: "文件夹",
+    emptyFolders: "空文件夹",
+    duplicates: "重复链接",
+  },
+  details: {
+    title: "书签详情",
+    name: "名称",
+    url: "URL",
+    path: "路径",
+    dateAdded: "添加时间",
+    edit: "编辑",
+    copyUrl: "复制 URL",
+  },
   modal: {
     emptyFolders: {
       title: "空文件夹",
-      subtitle: "选择要保留的文件夹（未勾选的将被删除）：",
+      subtitle: "选择要删除的文件夹。默认不会选中任何项。",
       noFolders: "没有找到空文件夹",
       cancel: "取消",
       delete: "删除 ({{count}})",
@@ -41,11 +75,51 @@ const zh: Translations = {
       cancel: "取消",
       ok: "确定",
     },
+    confirm: {
+      typeToConfirm: '输入 "{{value}}" 以确认',
+    },
+    bookmarkEdit: {
+      title: "编辑书签",
+      name: "标题",
+      url: "URL",
+      invalidUrl: "请输入有效 URL",
+    },
+    folderPicker: {
+      title: "选择目标文件夹",
+      search: "搜索文件夹...",
+    },
+  },
+  duplicates: {
+    title: "重复书签",
+    subtitle: "每组第一项默认保留。选择要删除的重复项。",
+    none: "未发现重复书签",
+  },
+  broken: {
+    title: "链接检查",
+    subtitle: "检查选中书签，或最多检查书签库中的 50 个书签。部分站点会隐藏状态，未知不一定代表失效。",
+    check: "开始检查",
+    empty: "运行检查后显示结果",
+    ok: "正常",
+    broken: "失效",
+    unknown: "未知",
+  },
+  layouts: {
+    title: "布局预设",
+    namePlaceholder: "预设名称",
+    save: "保存布局",
+    empty: "没有保存的布局",
+    saved: "布局已保存",
+  },
+  trash: {
+    title: "回收站",
+    empty: "没有最近删除项",
+    restore: "恢复",
+    restored: "项目已恢复",
   },
   toast: {
     folderCreated: "文件夹已创建",
     folderRenamed: "文件夹已重命名",
-    bookmarkRenamed: "书签已重命名",
+    bookmarkRenamed: "书签已更新",
     folderDeleted: "文件夹已删除",
     bookmarkMoved: "书签已移动",
     bookmarksMoved: "书签已批量移动",
@@ -57,16 +131,20 @@ const zh: Translations = {
     deleteFailed: "删除文件夹失败",
     importFailed: "导入书签失败",
     deleteItemsFailed: "删除项目失败",
+    moveFailed: "移动书签失败",
+    undoFailed: "撤销失败",
+    operationFailed: "操作失败",
+  },
+  undo: {
+    batch: "{{count}} 个书签",
   },
   confirm: {
-    deleteFolder: '确定删除文件夹"{{name}}"吗？',
-    deleteFolderWithContents:
-      '确定删除"{{name}}"吗？\n\n所有内容将被删除。\n\n点击确定继续。',
-    deleteFolderWarning:
-      "该文件夹包含书签。确定要删除吗？\n\n点击确定删除。",
-    deleteFolderFinal:
-      '最后警告："{{name}}"将被永久删除！\n\n点击确定继续。',
-    deleteSelected: "确定删除选中的 {{count}} 个项目吗？",
+    deleteFolderTitle: "删除文件夹",
+    deleteSelectedTitle: "删除选中项",
+    deleteFolder: '确定删除文件夹 "{{name}}" 吗？',
+    deleteFolderWithContents: '确定删除 "{{name}}" 及其中所有内容吗？浏览器中无法直接撤销，但会在回收站保存恢复副本。',
+    deleteSelected: "确定删除选中的 {{count}} 个项目吗？会在回收站保存恢复副本。",
+    deleteSelectedFolders: "确定删除选中的 {{count}} 个空文件夹吗？",
   },
 } as const;
 
