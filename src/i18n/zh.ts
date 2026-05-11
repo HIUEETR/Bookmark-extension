@@ -22,7 +22,6 @@ const zh: Translations = {
     undo: "撤销 ({{count}})",
     duplicates: "重复项",
     broken: "检查链接",
-    layouts: "布局",
     trash: "回收站",
     systemLocale: "自动",
     toggleTheme: "切换主题",
@@ -37,6 +36,8 @@ const zh: Translations = {
     deleteFolder: "删除文件夹",
     removeColumn: "移除列",
     goBack: "返回",
+    dragHandle: "拖拽调整列顺序",
+    resizeHandle: "调整列宽",
   },
   tree: {
     rename: "重命名",
@@ -102,13 +103,6 @@ const zh: Translations = {
     ok: "正常",
     broken: "失效",
     unknown: "未知",
-  },
-  layouts: {
-    title: "布局预设",
-    namePlaceholder: "预设名称",
-    save: "保存布局",
-    empty: "没有保存的布局",
-    saved: "布局已保存",
   },
   trash: {
     title: "回收站",

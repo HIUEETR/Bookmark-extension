@@ -37,7 +37,7 @@ async function checkOne(detail: BookmarkDetail): Promise<BrokenBookmarkResult> {
   const url = detail.node.url || "";
   try {
     const response = await fetch(url, { method: "HEAD", mode: "no-cors" });
-    if (response.type === "opaque") return baseResult(detail, "unknown", "Request completed but status is hidden");
+    if (response.type === "opaque") return baseResult(detail, "ok", "Reachable");
     if (response.ok) return baseResult(detail, "ok", String(response.status));
     return baseResult(detail, response.status >= 400 ? "broken" : "unknown", String(response.status));
   } catch (error) {

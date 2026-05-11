@@ -80,6 +80,15 @@ export async function moveBookmark(
   return await chrome.bookmarks.move(id, { parentId, index });
 }
 
+export async function getImportedBookmarksFolderId(): Promise<string> {
+  const tree = await getTree();
+  const root = tree[0];
+  const parent = root.children?.find((node) => !node.url) || root;
+  const existing = parent.children?.find((node) => !node.url && node.title === "Imported Bookmarks");
+  if (existing) return existing.id;
+  return (await createFolder({ parentId: parent.id, title: "Imported Bookmarks" })).id;
+}
+
 function createMockNode(input: {
   parentId: string;
   title: string;

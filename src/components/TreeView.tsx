@@ -3,6 +3,8 @@ import type { BookmarkNode } from "../types";
 import { useI18n } from "../context/I18nContext";
 import { IconChevronRight, IconChevronDown, IconFolder, IconEdit } from "./Icons";
 
+const BOOKMARK_DND_TYPE = "application/x-bookmark-id";
+
 interface TreeViewProps {
   nodes: BookmarkNode[];
   expandedFolders: Set<string>;
@@ -36,6 +38,7 @@ export function TreeView({
 }: TreeViewProps) {
   const { t } = useI18n();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [dropFolderId, setDropFolderId] = useState<string | null>(null);
 
   return (
     <div style={{ paddingLeft: depth * 16 + "px" }}>
@@ -48,16 +51,21 @@ export function TreeView({
           return (
             <div key={node.id}>
               <div
-                className="folder-item"
+                className={`folder-item${dropFolderId === node.id ? " folder-drop-target" : ""}`}
                 onDragOver={(e) => {
+                  const bookmarkId = e.dataTransfer.getData(BOOKMARK_DND_TYPE) || e.dataTransfer.getData("text/plain");
+                  if (bookmarkId === node.id) return;
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
+                  setDropFolderId(node.id);
                 }}
+                onDragLeave={() => setDropFolderId(null)}
                 onDrop={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  const bookmarkId = e.dataTransfer.getData("text/plain");
-                  if (bookmarkId) onMove?.(bookmarkId, node.id, node.children?.length || 0);
+                  const bookmarkId = e.dataTransfer.getData(BOOKMARK_DND_TYPE) || e.dataTransfer.getData("text/plain");
+                  setDropFolderId(null);
+                  if (bookmarkId && bookmarkId !== node.id) onMove?.(bookmarkId, node.id, node.children?.length || 0);
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -111,6 +119,7 @@ export function TreeView({
               className={`bookmark-item${selectedIds.has(node.id) ? " selected" : ""}`}
               draggable
               onDragStart={(e) => {
+                e.dataTransfer.setData(BOOKMARK_DND_TYPE, node.id);
                 e.dataTransfer.setData("text/plain", node.id);
               }}
               onDragOver={(e) => {
@@ -123,7 +132,7 @@ export function TreeView({
                 if (!parentFolderId) return;
                 e.preventDefault();
                 e.stopPropagation();
-                const bookmarkId = e.dataTransfer.getData("text/plain");
+                const bookmarkId = e.dataTransfer.getData(BOOKMARK_DND_TYPE) || e.dataTransfer.getData("text/plain");
                 setDropIndex(null);
                 if (bookmarkId) onMove?.(bookmarkId, parentFolderId, index);
               }}
@@ -144,15 +153,17 @@ export function TreeView({
                   (e.target as HTMLImageElement).style.display = "none";
                 }}
               />
-              <a
-                href={node.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bookmark-link"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {node.title || node.url}
-              </a>
+              <span className="bookmark-title-cell">
+                <a
+                  href={node.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bookmark-link"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {node.title || node.url}
+                </a>
+              </span>
               <button
                 className="rename-btn"
                 onClick={(e) => {

@@ -216,5 +216,6 @@ export function serializeColumns(columns: import("../types").ColumnData[]): impo
     folderTitle: col.folderTitle,
     expandedFolders: Array.from(col.expandedFolders),
     parentChain: col.parentChain,
+    width: col.width,
   }));
 }

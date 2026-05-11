@@ -35,6 +35,7 @@ export interface ColumnData {
   tree: BookmarkNode[];
   expandedFolders: Set<string>;
   parentChain: { id: string; title: string }[];
+  width?: number;
 }
 
 export interface SavedColumn {
@@ -43,6 +44,7 @@ export interface SavedColumn {
   folderTitle: string;
   expandedFolders: string[];
   parentChain: { id: string; title: string }[];
+  width?: number;
 }
 
 export interface SavedState {
@@ -71,13 +73,6 @@ export interface ImportedBookmarkNode {
 export interface BookmarkDetail {
   node: BookmarkNode;
   path: string;
-}
-
-export interface LayoutPreset {
-  id: string;
-  name: string;
-  columns: SavedColumn[];
-  createdAt: number;
 }
 
 export interface TrashEntry {

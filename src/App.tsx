@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   BatchMoveRecord,
   BookmarkDetail,
@@ -8,13 +8,13 @@ import type {
   ConfirmState,
   DuplicateGroup,
   FolderOption,
-  LayoutPreset,
   PromptState,
   SavedState,
   TrashEntry,
 } from "./types";
 import {
   createFolder,
+  getImportedBookmarksFolderId,
   getTree,
   moveBookmark,
   removeBookmark,
@@ -51,7 +51,6 @@ import { FolderPickerModal } from "./components/FolderPickerModal";
 import { BookmarkDetailsPanel } from "./components/BookmarkDetailsPanel";
 import { DuplicateBookmarksModal } from "./components/DuplicateBookmarksModal";
 import { BrokenBookmarksModal } from "./components/BrokenBookmarksModal";
-import { LayoutPresetsModal } from "./components/LayoutPresetsModal";
 import { StatsPanel } from "./components/StatsPanel";
 import {
   IconPlus,
@@ -66,12 +65,20 @@ import {
   IconBroom,
   IconSun,
   IconMoon,
-  IconColumns,
 } from "./components/Icons";
 import "./styles/app.css";
 
 const STATE_KEY = "my-bookmark-state";
-const LAYOUTS_KEY = "my-bookmark-layouts";
+const MIN_COLUMN_WIDTH = 280;
+const MAX_COLUMN_WIDTH = 560;
+const DEFAULT_COLUMN_WIDTH = 340;
+const COLUMN_DND_TYPE = "application/x-bookmark-column-id";
+const BOOKMARK_DND_TYPE = "application/x-bookmark-id";
+
+function clampColumnWidth(width: number | undefined): number {
+  if (typeof width !== "number" || Number.isNaN(width)) return DEFAULT_COLUMN_WIDTH;
+  return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, width));
+}
 
 export default function App() {
   const { t, localeSetting, setLocaleSetting } = useI18n();
@@ -80,10 +87,13 @@ export default function App() {
   const [tree, setTree] = useState<BookmarkNode[]>([]);
   const [columns, setColumns] = useState<ColumnData[]>([]);
   const [allFolders, setAllFolders] = useState<FolderOption[]>([]);
-  const [layouts, setLayouts] = useState<LayoutPreset[]>([]);
   const [undoStack, setUndoStack] = useState<BatchMoveRecord[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dragTargetColumn, setDragTargetColumn] = useState<string | null>(null);
+  const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
+  const [columnDropTargetId, setColumnDropTargetId] = useState<string | null>(null);
+  const [resizingColumnId, setResizingColumnId] = useState<string | null>(null);
+  const columnsRef = useRef<ColumnData[]>([]);
   const [emptyFolders, setEmptyFolders] = useState<FolderOption[]>([]);
   const [showEmptyModal, setShowEmptyModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -98,7 +108,6 @@ export default function App() {
   const [showBroken, setShowBroken] = useState(false);
   const [brokenResults, setBrokenResults] = useState<BrokenBookmarkResult[]>([]);
   const [checkingBroken, setCheckingBroken] = useState(false);
-  const [showLayouts, setShowLayouts] = useState(false);
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([]);
   const [showTrash, setShowTrash] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -111,6 +120,10 @@ export default function App() {
     void loadInitialState();
   }, []);
 
+  useEffect(() => {
+    columnsRef.current = columns;
+  }, [columns]);
+
   const showToast = (message: string) => setToast(message);
 
   function tr(str: string, vars?: Record<string, string | number>): string {
@@ -119,8 +132,6 @@ export default function App() {
   }
 
   async function loadInitialState() {
-    const savedLayouts = await readStorage<LayoutPreset[]>(LAYOUTS_KEY, []);
-    setLayouts(savedLayouts);
     await loadBookmarks();
   }
 
@@ -132,6 +143,33 @@ export default function App() {
     setTree(nextTree);
     setAllFolders(folders);
     setColumns(nextColumns);
+    setTrashEntries(await getTrashEntries());
+  }
+
+  async function loadBookmarksWithColumns(folderIds: string[]) {
+    const nextTree = await getTree();
+    const folders = extractAllFolders(nextTree);
+    const validFolderIds = folderIds.filter((id, index) => folderIds.indexOf(id) === index && folders.some((folder) => folder.id === id));
+    const fallbackFolderId = validFolderIds[0] ?? folders[0]?.id;
+    const selectedFolderIds = validFolderIds.slice(0, 4);
+    while (selectedFolderIds.length < 2 && fallbackFolderId) selectedFolderIds.push(fallbackFolderId);
+    const nextColumns = selectedFolderIds.map((folderId, index) => {
+      const parentChain = buildParentChain(nextTree, folderId);
+      const folder = folders.find((item) => item.id === folderId);
+      return {
+        id: `col-${Date.now()}-${index}`,
+        folderId,
+        folderTitle: parentChain[parentChain.length - 1]?.title || folder?.title || "Unknown",
+        tree: findFolderTree(nextTree, folderId) || [],
+        expandedFolders: new Set<string>(),
+        parentChain,
+        width: DEFAULT_COLUMN_WIDTH,
+      };
+    });
+    setTree(nextTree);
+    setAllFolders(folders);
+    setColumns(nextColumns);
+    await saveColumns(nextColumns);
     setTrashEntries(await getTrashEntries());
   }
 
@@ -148,6 +186,7 @@ export default function App() {
             tree: findFolderTree(nextTree, col.folderId) || [],
             expandedFolders: new Set(col.expandedFolders),
             parentChain: buildParentChain(nextTree, col.folderId),
+            width: clampColumnWidth(col.width),
           };
         });
       if (restored.length >= 2) return restored;
@@ -160,6 +199,7 @@ export default function App() {
       tree: folder.children || [],
       expandedFolders: new Set<string>(),
       parentChain: [{ id: folder.id, title: folder.title || "Bookmark Bar" }],
+      width: DEFAULT_COLUMN_WIDTH,
     }));
   }
 
@@ -171,14 +211,15 @@ export default function App() {
     const usedFolderIds = new Set(columns.map((c) => c.folderId));
     const available = allFolders.filter((f) => !usedFolderIds.has(f.id));
     if (available.length === 0) return;
-    const newFolderId = available[0].id;
+    const newFolder = available.find((folder) => (findFolderTree(tree, folder.id) || []).length > 0) || available[0];
     const nextColumn: ColumnData = {
       id: `col-${Date.now()}`,
-      folderId: newFolderId,
-      folderTitle: available[0].title,
-      tree: findFolderTree(tree, newFolderId) || [],
+      folderId: newFolder.id,
+      folderTitle: newFolder.title,
+      tree: findFolderTree(tree, newFolder.id) || [],
       expandedFolders: new Set(),
-      parentChain: buildParentChain(tree, newFolderId),
+      parentChain: buildParentChain(tree, newFolder.id),
+      width: DEFAULT_COLUMN_WIDTH,
     };
     const nextColumns = [...columns, nextColumn];
     setColumns(nextColumns);
@@ -338,8 +379,10 @@ export default function App() {
       try {
         setBusy(true);
         const nodes = parseBookmarkFile(await file.text(), file.name);
-        await importNodes(nodes, columns[0]?.folderId || allFolders[0]?.id || "1");
-        await loadBookmarks();
+        const importFolderId = await getImportedBookmarksFolderId();
+        const importedNodes = await importNodes(nodes, importFolderId);
+        const importedFolderIds = importedNodes.filter((node) => node.children && node.children.length > 0).map((node) => node.id);
+        await loadBookmarksWithColumns([importFolderId, ...importedFolderIds]);
         showToast(t.toast.imported);
       } catch {
         showToast(t.toast.importFailed);
@@ -401,17 +444,90 @@ export default function App() {
   const handleColumnDragOver = (e: React.DragEvent, columnId: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    setDragTargetColumn(columnId);
+    if (Array.from(e.dataTransfer.types).includes(COLUMN_DND_TYPE)) {
+      setColumnDropTargetId(columnId);
+      setDragTargetColumn(null);
+    } else {
+      setDragTargetColumn(columnId);
+    }
   };
 
   const handleColumnDrop = async (e: React.DragEvent, targetColumnId: string) => {
     e.preventDefault();
     setDragTargetColumn(null);
-    const bookmarkId = e.dataTransfer.getData("text/plain");
+    setColumnDropTargetId(null);
+    const draggedColumnId = e.dataTransfer.getData(COLUMN_DND_TYPE);
+    if (draggedColumnId) {
+      if (draggedColumnId === targetColumnId) return;
+      const fromIndex = columns.findIndex((c) => c.id === draggedColumnId);
+      const toIndex = columns.findIndex((c) => c.id === targetColumnId);
+      if (fromIndex < 0 || toIndex < 0) return;
+      const nextColumns = [...columns];
+      const [movedColumn] = nextColumns.splice(fromIndex, 1);
+      nextColumns.splice(toIndex, 0, movedColumn);
+      setColumns(nextColumns);
+      await saveColumns(nextColumns);
+      return;
+    }
+
+    const bookmarkId = e.dataTransfer.getData(BOOKMARK_DND_TYPE) || e.dataTransfer.getData("text/plain");
     const targetColumn = columns.find((c) => c.id === targetColumnId);
     if (!targetColumn || !bookmarkId) return;
     if (selectedIds.has(bookmarkId)) await moveSelectedBookmarks(targetColumn.folderId, targetColumn.tree.length);
     else await moveSingleBookmark(bookmarkId, targetColumn.folderId, targetColumn.tree.length);
+  };
+
+  const startColumnDrag = (e: React.DragEvent, columnId: string) => {
+    e.dataTransfer.setData(COLUMN_DND_TYPE, columnId);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggingColumnId(columnId);
+  };
+
+  const handleColumnDragEnd = () => {
+    setDraggingColumnId(null);
+    setColumnDropTargetId(null);
+  };
+
+  const resizeColumn = (columnId: string, width: number) => {
+    const nextWidth = clampColumnWidth(width);
+    setColumns((currentColumns) => {
+      const nextColumns = currentColumns.map((column) => (column.id === columnId ? { ...column, width: nextWidth } : column));
+      columnsRef.current = nextColumns;
+      return nextColumns;
+    });
+    return nextWidth;
+  };
+
+  const startColumnResize = (e: React.PointerEvent, columnId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = clampColumnWidth(columns.find((column) => column.id === columnId)?.width);
+    setResizingColumnId(columnId);
+
+    const handlePointerMove = (event: PointerEvent) => {
+      resizeColumn(columnId, startWidth + event.clientX - startX);
+    };
+
+    const handlePointerUp = () => {
+      setResizingColumnId(null);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      void saveColumns(columnsRef.current);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  };
+
+  const handleColumnResizeKeyDown = (e: React.KeyboardEvent, columnId: string) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const direction = e.key === "ArrowRight" ? 1 : -1;
+    const step = e.shiftKey ? 40 : 10;
+    const currentWidth = clampColumnWidth(columns.find((column) => column.id === columnId)?.width);
+    resizeColumn(columnId, currentWidth + direction * step);
+    void saveColumns(columnsRef.current);
   };
 
   async function moveSingleBookmark(bookmarkId: string, targetFolderId: string, targetIndex: number) {
@@ -526,26 +642,6 @@ export default function App() {
     setCheckingBroken(false);
   };
 
-  const saveLayoutPreset = async (name: string) => {
-    const next = [{ id: `${Date.now()}`, name, columns: serializeColumns(columns), createdAt: Date.now() }, ...layouts];
-    setLayouts(next);
-    await writeStorage(LAYOUTS_KEY, next);
-    showToast(t.layouts.saved);
-  };
-
-  const applyLayoutPreset = async (preset: LayoutPreset) => {
-    const nextColumns = buildColumns(tree, allFolders, { columns: preset.columns });
-    setColumns(nextColumns);
-    await saveColumns(nextColumns);
-    setShowLayouts(false);
-  };
-
-  const deleteLayoutPreset = async (id: string) => {
-    const next = layouts.filter((preset) => preset.id !== id);
-    setLayouts(next);
-    await writeStorage(LAYOUTS_KEY, next);
-  };
-
   const restoreTrashEntry = async (entry: TrashEntry) => {
     if (!entry.parentId) return;
     await importNodes([{ title: entry.node.title, url: entry.node.url, children: entry.node.children }], entry.parentId);
@@ -577,7 +673,6 @@ export default function App() {
         <div className="header-right">
           <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)}>{t.header.duplicates}</button>
           <button className="btn btn-ghost" onClick={() => setShowBroken(true)}>{t.header.broken}</button>
-          <button className="btn btn-ghost" onClick={() => setShowLayouts(true)}><IconColumns />{t.header.layouts}</button>
           <button className="btn btn-ghost" onClick={() => setShowTrash(true)}>{t.header.trash} ({trashEntries.length})</button>
           <div className="toggle-group">
             {(["system", "en", "zh"] as const).map((value) => (
@@ -602,12 +697,24 @@ export default function App() {
           {columns.map((column) => (
             <div
               key={column.id}
-              className={`column${dragTargetColumn === column.id ? " drag-over" : ""}`}
+              className={`column${dragTargetColumn === column.id ? " drag-over" : ""}${columnDropTargetId === column.id ? " reorder-over" : ""}${draggingColumnId === column.id ? " dragging" : ""}${resizingColumnId === column.id ? " resizing" : ""}`}
+              style={{ width: clampColumnWidth(column.width), flex: "0 0 auto" }}
               onDragOver={(e) => handleColumnDragOver(e, column.id)}
-              onDragLeave={() => setDragTargetColumn(null)}
+              onDragLeave={() => {
+                setDragTargetColumn(null);
+                setColumnDropTargetId(null);
+              }}
               onDrop={(e) => void handleColumnDrop(e, column.id)}
             >
               <div className="column-header">
+                <button
+                  className="column-drag-handle"
+                  draggable
+                  onDragStart={(e) => startColumnDrag(e, column.id)}
+                  onDragEnd={handleColumnDragEnd}
+                  title={t.column.dragHandle}
+                  aria-label={t.column.dragHandle}
+                />
                 <div className="column-nav">
                   {column.parentChain.length > 1 && <button onClick={() => goBack(column.id)} className="back-btn" title={t.column.goBack}><IconArrowLeft /></button>}
                   <span className="folder-path">
@@ -645,6 +752,18 @@ export default function App() {
                   parentFolderId={column.folderId}
                 />
               </div>
+              <div
+                className="column-resize-handle"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t.column.resizeHandle}
+                aria-valuemin={MIN_COLUMN_WIDTH}
+                aria-valuemax={MAX_COLUMN_WIDTH}
+                aria-valuenow={clampColumnWidth(column.width)}
+                tabIndex={0}
+                onPointerDown={(e) => startColumnResize(e, column.id)}
+                onKeyDown={(e) => handleColumnResizeKeyDown(e, column.id)}
+              />
             </div>
           ))}
         </div>
@@ -658,7 +777,6 @@ export default function App() {
       {folderPicker && <FolderPickerModal folders={allFolders} title={t.modal.folderPicker.title} onPick={(folderId) => { setFolderPicker(null); void moveSelectedBookmarks(folderId, 0); }} onClose={() => setFolderPicker(null)} />}
       {showDuplicates && <DuplicateBookmarksModal groups={duplicateGroups} selectedIds={duplicateSelection} onToggle={(id) => setDuplicateSelection((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; })} onDelete={handleDuplicateDelete} onClose={() => setShowDuplicates(false)} />}
       {showBroken && <BrokenBookmarksModal results={brokenResults} loading={checkingBroken} onCheck={() => void runBrokenCheck()} onClose={() => setShowBroken(false)} />}
-      {showLayouts && <LayoutPresetsModal presets={layouts} onSave={(name) => void saveLayoutPreset(name)} onApply={(preset) => void applyLayoutPreset(preset)} onDelete={(id) => void deleteLayoutPreset(id)} onClose={() => setShowLayouts(false)} />}
       {showTrash && (
         <div className="modal-overlay" onClick={() => setShowTrash(false)}>
           <div className="empty-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
