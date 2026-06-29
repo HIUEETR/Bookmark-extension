@@ -16,6 +16,7 @@ import {
   createFolder,
   getImportedBookmarksFolderId,
   getTree,
+  isBookmarksEmpty,
   moveBookmark,
   removeBookmark,
   removeTree,
@@ -52,6 +53,7 @@ import { BookmarkDetailsPanel } from "./components/BookmarkDetailsPanel";
 import { DuplicateBookmarksModal } from "./components/DuplicateBookmarksModal";
 import { BrokenBookmarksModal } from "./components/BrokenBookmarksModal";
 import { StatsPanel } from "./components/StatsPanel";
+import { WelcomeScreen } from "./components/WelcomeScreen";
 import {
   IconPlus,
   IconTrash,
@@ -85,6 +87,7 @@ export default function App() {
   const { theme, toggleTheme } = useTheme();
 
   const [tree, setTree] = useState<BookmarkNode[]>([]);
+  const [showWelcome, setShowWelcome] = useState(false);
   const [columns, setColumns] = useState<ColumnData[]>([]);
   const [allFolders, setAllFolders] = useState<FolderOption[]>([]);
   const [undoStack, setUndoStack] = useState<BatchMoveRecord[]>([]);
@@ -132,6 +135,7 @@ export default function App() {
   }
 
   async function loadInitialState() {
+    setShowWelcome(await isBookmarksEmpty());
     await loadBookmarks();
   }
 
@@ -288,6 +292,10 @@ export default function App() {
     }
     const column = columns.find((c) => c.id === columnId);
     if (!column) return;
+    if (column.folderId === "1" || column.folderId === "2") {
+      showToast("默认根文件夹不能删除");
+      return;
+    }
     const currentTitle = column.parentChain[column.parentChain.length - 1]?.title || column.folderTitle;
     const hasContent = column.tree.some((node) => node.url || (node.children && node.children.length > 0));
     setConfirmModal({
@@ -327,8 +335,11 @@ export default function App() {
   async function deleteIds(ids: string[]) {
     setBusy(true);
     try {
+      const protectedIds = new Set(["0", "1", "2"]);
+      const safeIds = ids.filter((id) => !protectedIds.has(id));
+      if (safeIds.length === 0) return;
       const latestTree = await getTree();
-      const nodes = getTopLevelSelectedNodes(latestTree, ids);
+      const nodes = getTopLevelSelectedNodes(latestTree, safeIds);
       if (nodes.length > 0) await addTrashEntries(nodes);
       for (const node of nodes) {
         if (node.url) await removeBookmark(node.id);
@@ -383,6 +394,7 @@ export default function App() {
         const importedNodes = await importNodes(nodes, importFolderId);
         const importedFolderIds = importedNodes.filter((node) => node.children && node.children.length > 0).map((node) => node.id);
         await loadBookmarksWithColumns([importFolderId, ...importedFolderIds]);
+        setShowWelcome(false);
         showToast(t.toast.imported);
       } catch {
         showToast(t.toast.importFailed);
@@ -651,6 +663,19 @@ export default function App() {
     await loadBookmarks();
     showToast(t.trash.restored);
   };
+
+  if (showWelcome) {
+    return (
+      <div className="app">
+        <WelcomeScreen onReady={async (folderIds) => {
+          setShowWelcome(false);
+          if (folderIds) await loadBookmarksWithColumns(folderIds);
+          else await loadBookmarks();
+        }} />
+        {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      </div>
+    );
+  }
 
   if (columns.length === 0) {
     return <div className="app"><div className="loading">{t.app.loading}</div></div>;

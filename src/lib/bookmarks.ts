@@ -89,6 +89,31 @@ export async function getImportedBookmarksFolderId(): Promise<string> {
   return (await createFolder({ parentId: parent.id, title: "Imported Bookmarks" })).id;
 }
 
+export async function isBookmarksEmpty(): Promise<boolean> {
+  const tree = await getTree();
+  const root = tree[0];
+  return !root.children?.some((folder) => (folder.children?.length || 0) > 0);
+}
+
+export async function loadExampleBookmarks(): Promise<void> {
+  if (!hasChromeBookmarks) {
+    mockTree.splice(0, mockTree.length);
+    mockTree.push(...getMockTree());
+    mockNextId = 1000;
+    return;
+  }
+  await chrome.bookmarks.create({ parentId: "1", title: "GitHub", url: "https://github.com/" });
+  await chrome.bookmarks.create({ parentId: "1", title: "Google", url: "https://www.google.com/" });
+  await chrome.bookmarks.create({ parentId: "1", title: "GitHub Mirror", url: "https://github.com" });
+  const workFolder = await chrome.bookmarks.create({ parentId: "1", title: "Work Folder" });
+  if (workFolder.id) {
+    await chrome.bookmarks.create({ parentId: workFolder.id, title: "Email", url: "https://mail.google.com/" });
+  }
+  await chrome.bookmarks.create({ parentId: "1", title: "Empty Folder" });
+  await chrome.bookmarks.create({ parentId: "2", title: "YouTube", url: "https://youtube.com/" });
+  await chrome.bookmarks.create({ parentId: "2", title: "MDN", url: "https://developer.mozilla.org/" });
+}
+
 function createMockNode(input: {
   parentId: string;
   title: string;
