@@ -43,13 +43,13 @@
 
 ## 技术栈
 
-| 类别 | 技术 |
-|---|---|
-| 框架 | React 18 + TypeScript 5 |
-| 构建 | Vite 5 |
-| 扩展 | Chrome Extension Manifest V3 |
-| 测试 | Vitest 4 |
-| 代码规范 | ESLint 10 |
+| 类别     | 技术                         |
+| -------- | ---------------------------- |
+| 框架     | React 18 + TypeScript 5      |
+| 构建     | Vite 5                       |
+| 扩展     | Chrome Extension Manifest V3 |
+| 测试     | Vitest 4                     |
+| 代码规范 | ESLint 10                    |
 
 ## 开发
 
@@ -117,18 +117,18 @@ My-Bookmark/
 
 ## 权限说明
 
-| 权限 | 用途 |
-|---|---|
-| `bookmarks` | 读取、创建、移动、更新和删除书签 |
-| `storage` | 保存主题、语言、列布局、回收站元数据 |
+| 权限          | 用途                                 |
+| ------------- | ------------------------------------ |
+| `bookmarks` | 读取、创建、移动、更新和删除书签     |
+| `storage`   | 保存主题、语言、列布局、回收站元数据 |
 
 链接检查目前手动触发，并尽量保守处理跨域限制。由于未申请所有站点 host 权限，部分链接可能显示为"未知"，这不一定代表链接失效。
 
 ## 导入导出格式
 
-| 格式 | 说明 |
-|---|---|
-| JSON | 适合本扩展备份和恢复 |
+| 格式 | 说明                                       |
+| ---- | ------------------------------------------ |
+| JSON | 适合本扩展备份和恢复                       |
 | HTML | 兼容浏览器常用 Netscape Bookmark File 格式 |
 
 导入时会把内容放入"Imported Bookmarks"文件夹，避免错误地复制当前浏览器现有书签树。
@@ -141,4 +141,4 @@ My-Bookmark/
 
 ## 相关项目
 
-- **Bookmark-Web**（[仓库](../Bookmark-Web)）：本扩展的纯网页版本，部署到 GitHub Pages，使用 localStorage 存储书签数据，无需安装扩展即可使用。
+- **Bookmark-Web**（[仓库](https://github.com/HIUEETR/Bookmark-Web)）：本扩展的纯网页版本，部署到 GitHub Pages，使用 localStorage 存储书签数据，无需安装扩展即可使用。
