@@ -1,4 +1,4 @@
-# My Bookmark
+# Bookmark-Extension
 
 > Chrome / Edge 浏览器书签管理扩展 —— 多列浏览、拖拽整理、搜索、导入导出、回收站备份。
 
