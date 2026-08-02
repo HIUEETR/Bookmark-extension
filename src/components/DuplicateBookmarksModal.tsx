@@ -20,18 +20,21 @@ export function DuplicateBookmarksModal({ groups, selectedIds, onToggle, onDelet
           {groups.length === 0 ? <div className="empty-modal-empty">{t.duplicates.none}</div> : groups.map((group) => (
             <section key={group.url} className="duplicate-group">
               <strong>{group.url}</strong>
-              {group.items.map((item, index) => (
-                <label key={item.node.id} className="duplicate-item">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(item.node.id)}
-                    onChange={() => onToggle(item.node.id)}
-                    disabled={index === 0}
-                  />
-                  <span>{item.node.title || item.node.url}</span>
-                  <small>{item.path}</small>
-                </label>
-              ))}
+              {group.items.map((item, index) => {
+                const isLast = index === group.items.length - 1;
+                return (
+                  <label key={item.node.id} className={`duplicate-item${isLast ? " keep-item" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(item.node.id)}
+                      onChange={() => onToggle(item.node.id)}
+                      disabled={isLast}
+                    />
+                    <span>{item.node.title || item.node.url}</span>
+                    <small>{item.path}{isLast ? ` · ${t.duplicates.keepLast}` : ""}</small>
+                  </label>
+                );
+              })}
             </section>
           ))}
         </div>

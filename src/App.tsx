@@ -633,6 +633,17 @@ export default function App() {
     setSearchQuery("");
   };
 
+    const openDuplicates = () => {
+    const next = new Set<string>();
+    for (const group of duplicateGroups) {
+      group.items.forEach((item, index) => {
+        if (index < group.items.length - 1) next.add(item.node.id);
+      });
+    }
+    setDuplicateSelection(next);
+    setShowDuplicates(true);
+  };
+
   const handleDuplicateDelete = () => {
     const ids = Array.from(duplicateSelection);
     setConfirmModal({
@@ -696,7 +707,7 @@ export default function App() {
           <button onClick={handleUndo} disabled={undoStack.length === 0 || busy} className="btn btn-ghost"><IconUndo />{tr(t.header.undo, { count: undoStack.length })}</button>
         </div>
         <div className="header-right">
-          <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)}>{t.header.duplicates}</button>
+          <button className="btn btn-ghost" onClick={() => openDuplicates()}>{t.header.duplicates}</button>
           <button className="btn btn-ghost" onClick={() => setShowBroken(true)}>{t.header.broken}</button>
           <button className="btn btn-ghost" onClick={() => setShowTrash(true)}>{t.header.trash} ({trashEntries.length})</button>
           <div className="toggle-group">
@@ -712,7 +723,7 @@ export default function App() {
 
       <div className="toolbar-row">
         <SearchBar value={searchQuery} results={searchResults} onChange={setSearchQuery} onPick={handleSearchPick} />
-        <StatsPanel stats={stats} onDuplicates={() => setShowDuplicates(true)} onEmptyFolders={showClearEmptyModal} />
+        <StatsPanel stats={stats} onDuplicates={openDuplicates} onEmptyFolders={showClearEmptyModal} />
       </div>
 
       {selectedIds.size > 0 && <div className="selection-bar">{tr(t.selection.count, { count: selectedIds.size })} — {t.selection.dropHint}</div>}
@@ -822,3 +833,4 @@ export default function App() {
     </div>
   );
 }
+
