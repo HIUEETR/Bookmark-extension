@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
@@ -31,6 +31,10 @@ jobs:
 
       - name: Create ZIP package
         run: |
+          if [ ! -d "dist" ]; then
+            echo "dist 目录不存在，构建可能失败"
+            exit 1
+          fi
           cd dist
           zip -r "../MyBookmark-${{ github.ref_name }}.zip" .
           cd ..
