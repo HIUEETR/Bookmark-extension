@@ -36,34 +36,30 @@ jobs:
           cd ..
           ls -lh MyBookmark-*.zip
 
-      - name: Generate changelog (diff from previous tag)
+      - name: Generate changelog using git describe
         id: changelog
         run: |
           CURRENT_TAG="${{ github.ref_name }}"
-          # Find previous tag
-          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -n 1 || true)
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "v0.0.0")
 
-          if [ -z "$PREV_TAG" ]; then
-            CHANGELOG="首次发布，无历史差异。"
+          echo "Current tag: $CURRENT_TAG"
+          echo "Previous tag: $PREV_TAG"
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+
+          if [ "$PREV_TAG" = "v0.0.0" ]; then
+            echo "### 首次发布" >> $GITHUB_OUTPUT
+            echo "无历史差异。" >> $GITHUB_OUTPUT
           else
-            echo "Comparing $PREV_TAG → $CURRENT_TAG"
-            # Generate commit list and file changes
-            {
-              echo "### Commits"
-              echo ""
-              git log --pretty=format:"- %s (%h)" ${PREV_TAG}..${CURRENT_TAG}
-              echo ""
-              echo ""
-              echo "### Changed files"
-              echo ""
-              git diff --name-status ${PREV_TAG}..${CURRENT_TAG}
-            } > /tmp/changelog.md
-            CHANGELOG=$(cat /tmp/changelog.md)
+            echo "### 与上个版本的差异" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "#### Commits" >> $GITHUB_OUTPUT
+            git log --pretty=format:"- %s (%h)" ${PREV_TAG}..${CURRENT_TAG} >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "#### Changed files" >> $GITHUB_OUTPUT
+            git diff --name-status ${PREV_TAG}..${CURRENT_TAG} >> $GITHUB_OUTPUT
           fi
 
-          # Multi-line output for GitHub Actions
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
@@ -83,13 +79,11 @@ jobs:
 
             ### 安装方法
             1. 下载 ZIP 并解压
-            2. 打开 `chrome://extensions` 或 `edge://extensions`
+            2. 打开 chrome://extensions 或 edge://extensions
             3. 启用「开发者模式」
             4. 选择「加载已解压的扩展」并选择解压后的目录
 
             ---
-
-            ## 与上个版本的差异
 
             ${{ steps.changelog.outputs.changelog }}
 
