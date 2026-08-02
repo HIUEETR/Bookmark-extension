@@ -808,10 +808,10 @@ export default function App() {
 
       {showEmptyModal && <EmptyFolderModal emptyFolders={emptyFolders} onDelete={handleDeleteEmptyFolders} onClose={() => setShowEmptyModal(false)} />}
       {promptModal && <PromptModal title={promptModal.type === "createFolder" ? t.modal.prompt.newFolder : t.modal.prompt.rename} defaultValue={promptModal.type === "renameFolder" ? promptModal.title : ""} onSubmit={(value) => void handlePromptSubmit(value)} onCancel={() => setPromptModal(null)} />}
-      {confirmModal && <ConfirmModal state={confirmModal} onClose={() => setConfirmModal(null)} />}
       {bookmarkEdit && <BookmarkEditModal title={bookmarkEdit.title} url={bookmarkEdit.url || ""} onSubmit={(value) => void handleEditBookmark(value)} onCancel={() => setBookmarkEdit(null)} />}
       {folderPicker && <FolderPickerModal folders={allFolders} title={t.modal.folderPicker.title} onPick={(folderId) => { setFolderPicker(null); void moveSelectedBookmarks(folderId, 0); }} onClose={() => setFolderPicker(null)} />}
       {showDuplicates && <DuplicateBookmarksModal groups={duplicateGroups} selectedIds={duplicateSelection} onToggle={(id) => setDuplicateSelection((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; })} onDelete={handleDuplicateDelete} onClose={() => setShowDuplicates(false)} />}
+      {confirmModal && <ConfirmModal state={confirmModal} onClose={() => setConfirmModal(null)} />}
       {showBroken && <BrokenBookmarksModal results={brokenResults} loading={checkingBroken} onCheck={() => void runBrokenCheck()} onClose={() => setShowBroken(false)} />}
       {showTrash && (
         <div className="modal-overlay" onClick={() => setShowTrash(false)}>
@@ -833,4 +833,5 @@ export default function App() {
     </div>
   );
 }
+
 

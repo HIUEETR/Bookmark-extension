@@ -92,8 +92,9 @@ const zh: Translations = {
   },
   duplicates: {
     title: "重复书签",
-    subtitle: "每组第一项默认保留。选择要删除的重复项。",
+    subtitle: "每组最后一项默认保留。已勾选的项将被删除。",
     none: "未发现重复书签",
+    keepLast: "保留（最后一项）",
   },
   broken: {
     title: "链接检查",
@@ -143,3 +144,4 @@ const zh: Translations = {
 } as const;
 
 export default zh;
+

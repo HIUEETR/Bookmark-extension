@@ -90,8 +90,9 @@ const en = {
   },
   duplicates: {
     title: "Duplicate bookmarks",
-    subtitle: "The first item in each group is kept by default. Select duplicates to delete.",
+    subtitle: "The last item in each group is kept by default. Checked items will be deleted.",
     none: "No duplicate bookmarks found",
+    keepLast: "Keep (last)",
   },
   broken: {
     title: "Link checker",
@@ -149,3 +150,4 @@ type DeepStringify<T> = T extends string
     : T;
 
 export type Translations = DeepStringify<typeof en>;
+
