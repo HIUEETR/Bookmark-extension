@@ -2,7 +2,7 @@ import type { BrokenBookmarkResult, BookmarkDetail, BookmarkNode, TrashEntry } f
 import { flattenBookmarks } from "./bookmarkTree";
 import { readStorage, writeStorage } from "./storage";
 
-const TRASH_KEY = "my-bookmark-trash";
+const TRASH_KEY = "bookmark-trash";
 const TRASH_LIMIT = 100;
 
 export async function addTrashEntries(nodes: BookmarkNode[]): Promise<void> {

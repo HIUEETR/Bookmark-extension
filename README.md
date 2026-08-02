@@ -96,7 +96,7 @@ npm run build        # 完整构建（含 postbuild）
 ## 项目结构
 
 ```
-My-Bookmark/
+Bookmark/
 ├── src/
 │   ├── components/         # React 组件（TreeView、各种 Modal、WelcomeScreen 等）
 │   ├── context/            # I18n 与主题 Context

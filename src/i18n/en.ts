@@ -6,7 +6,7 @@ const en = {
     working: "Working...",
   },
   app: {
-    title: "My Bookmark",
+    title: "Bookmark",
     loading: "Loading bookmarks...",
   },
   header: {

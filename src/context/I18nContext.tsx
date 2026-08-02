@@ -12,7 +12,7 @@ interface I18nContextValue {
   t: Translations;
 }
 
-const STORAGE_KEY = "my-bookmark-locale";
+const STORAGE_KEY = "bookmark-locale";
 
 function resolveLocale(setting: LocaleSetting): Locale {
   if (setting === "system") return navigator.language.startsWith("zh") ? "zh" : "en";

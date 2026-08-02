@@ -1,6 +1,6 @@
 {
-  "name": "My Bookmark",
-  "short_name": "MyBookmark",
+  "name": "Bookmark",
+  "short_name": "Bookmark",
   "version": "1.0.0",
   "description": "Multi-column bookmark manager with drag & drop and undo support",
   "manifest_version": 3,

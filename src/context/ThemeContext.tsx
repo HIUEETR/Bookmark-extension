@@ -8,7 +8,7 @@ interface ThemeContextValue {
   toggleTheme: () => void;
 }
 
-const STORAGE_KEY = "my-bookmark-theme";
+const STORAGE_KEY = "bookmark-theme";
 
 function systemTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
