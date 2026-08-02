@@ -1,0 +1,100 @@
+name: Release Browser Extension
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Create ZIP package
+        run: |
+          cd dist
+          zip -r "../MyBookmark-${{ github.ref_name }}.zip" .
+          cd ..
+          ls -lh MyBookmark-*.zip
+
+      - name: Generate changelog (diff from previous tag)
+        id: changelog
+        run: |
+          CURRENT_TAG="${{ github.ref_name }}"
+          # Find previous tag
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -n 1 || true)
+
+          if [ -z "$PREV_TAG" ]; then
+            CHANGELOG="首次发布，无历史差异。"
+          else
+            echo "Comparing $PREV_TAG → $CURRENT_TAG"
+            # Generate commit list and file changes
+            {
+              echo "### Commits"
+              echo ""
+              git log --pretty=format:"- %s (%h)" ${PREV_TAG}..${CURRENT_TAG}
+              echo ""
+              echo ""
+              echo "### Changed files"
+              echo ""
+              git diff --name-status ${PREV_TAG}..${CURRENT_TAG}
+            } > /tmp/changelog.md
+            CHANGELOG=$(cat /tmp/changelog.md)
+          fi
+
+          # Multi-line output for GitHub Actions
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: My Bookmark ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            MyBookmark-${{ github.ref_name }}.zip
+          body: |
+            ## My Bookmark ${{ github.ref_name }}
+
+            ### 下载
+            - 扩展安装包：`MyBookmark-${{ github.ref_name }}.zip`
+
+            ### 安装方法
+            1. 下载 ZIP 并解压
+            2. 打开 `chrome://extensions` 或 `edge://extensions`
+            3. 启用「开发者模式」
+            4. 选择「加载已解压的扩展」并选择解压后的目录
+
+            ---
+
+            ## 与上个版本的差异
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ---
+
+            > 本 Release 由 GitHub Actions 自动构建并发布。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
