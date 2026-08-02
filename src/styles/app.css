@@ -456,10 +456,17 @@
 .folder-path {
   font-size: 13px;
   color: var(--accent-link);
+  direction: rtl;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  min-width: 0;
+}
+.folder-path > span {
+  direction: ltr;
+  unicode-bidi: embed;
 }
 
 .path-separator {
@@ -1196,3 +1203,7 @@ a:focus-visible {
   position: relative;
   z-index: 1101;
 }
+
+
+
+

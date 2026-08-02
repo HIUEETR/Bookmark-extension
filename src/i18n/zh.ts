@@ -92,7 +92,7 @@ const zh: Translations = {
   },
   duplicates: {
     title: "重复书签",
-    subtitle: "每组最后一项默认保留。已勾选的项将被删除。",
+    subtitle: "默认保留每组最后一项（可手动改选）。已勾选的项将被删除。",
     none: "未发现重复书签",
     keepLast: "保留（最后一项）",
   },
@@ -144,4 +144,5 @@ const zh: Translations = {
 } as const;
 
 export default zh;
+
 
