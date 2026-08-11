@@ -12,12 +12,12 @@ const en = {
   header: {
     addColumn: "Add Column",
     clearEmpty: "Clear Empty",
-    deleteSelected: "Delete ({{count}})",
+    deleteSelected: "Delete",
     moveTo: "Move to...",
     import: "Import",
     exportJson: "Export JSON",
     exportHtml: "Export HTML",
-    undo: "Undo ({{count}})",
+    undo: "Undo",
     duplicates: "Duplicates",
     broken: "Check Links",
     trash: "Trash",
@@ -50,6 +50,7 @@ const en = {
     folders: "Folders",
     emptyFolders: "Empty",
     duplicates: "Duplicates",
+    topDomains: "Top domains",
   },
   details: {
     title: "Bookmark details",

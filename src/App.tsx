@@ -67,8 +67,13 @@ import {
   IconBroom,
   IconSun,
   IconMoon,
+  IconMove,
+  IconCopy,
+  IconLink,
+  IconRecycle,
 } from "./components/Icons";
 import "./styles/app.css";
+import "./styles/banner.css";
 
 const STATE_KEY = "bookmark-state";
 const MIN_COLUMN_WIDTH = 280;
@@ -694,22 +699,24 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="header">
+            <div className="header">
         <div className="header-left">
           <h1 className="title">{t.app.title}</h1>
-          <button onClick={addColumn} className="btn btn-success" disabled={busy}><IconPlus />{t.header.addColumn}</button>
-          <button onClick={showClearEmptyModal} className="btn btn-warning" disabled={busy}><IconBroom />{t.header.clearEmpty}</button>
-          {selectedIds.size > 0 && <button onClick={requestDeleteSelected} className="btn btn-danger" disabled={busy}><IconTrash />{tr(t.header.deleteSelected, { count: selectedIds.size })}</button>}
-          {selectedIds.size > 0 && <button onClick={() => setFolderPicker("batchMove")} className="btn btn-ghost" disabled={busy}>{t.header.moveTo}</button>}
+          <button onClick={addColumn} className="btn btn-primary" disabled={busy}><IconPlus />{t.header.addColumn}</button>
+          {selectedIds.size > 0 && <button onClick={requestDeleteSelected} className="btn btn-danger" disabled={busy}><IconTrash />{t.header.deleteSelected}<span className="btn-badge">{selectedIds.size}</span></button>}
+          {selectedIds.size > 0 && <button onClick={() => setFolderPicker("batchMove")} className="btn btn-ghost" disabled={busy}><IconMove />{t.header.moveTo}</button>}
+          <span className="header-divider" aria-hidden="true" />
           <button onClick={handleImport} className="btn btn-ghost" disabled={busy}><IconUpload />{t.header.import}</button>
           <button onClick={() => void handleExport("json")} className="btn btn-ghost"><IconDownload />{t.header.exportJson}</button>
           <button onClick={() => void handleExport("html")} className="btn btn-ghost"><IconDownload />{t.header.exportHtml}</button>
-          <button onClick={handleUndo} disabled={undoStack.length === 0 || busy} className="btn btn-ghost"><IconUndo />{tr(t.header.undo, { count: undoStack.length })}</button>
+          <button onClick={handleUndo} disabled={undoStack.length === 0 || busy} className="btn btn-ghost"><IconUndo />{t.header.undo}{undoStack.length > 0 && <span className="btn-badge">{undoStack.length}</span>}</button>
         </div>
         <div className="header-right">
-          <button className="btn btn-ghost" onClick={() => openDuplicates()}>{t.header.duplicates}</button>
-          <button className="btn btn-ghost" onClick={() => setShowBroken(true)}>{t.header.broken}</button>
-          <button className="btn btn-ghost" onClick={() => setShowTrash(true)}>{t.header.trash} ({trashEntries.length})</button>
+          <button className="btn btn-ghost btn-compact" onClick={showClearEmptyModal} disabled={busy}><IconBroom />{t.header.clearEmpty}</button>
+          <span className="header-divider" aria-hidden="true" />
+          <button className="btn btn-ghost btn-compact" onClick={() => openDuplicates()}><IconCopy />{t.header.duplicates}</button>
+          <button className="btn btn-ghost btn-compact" onClick={() => setShowBroken(true)}><IconLink />{t.header.broken}</button>
+          <button className="btn btn-ghost btn-compact" onClick={() => setShowTrash(true)}><IconRecycle />{t.header.trash}{trashEntries.length > 0 && <span className="btn-badge">{trashEntries.length}</span>}</button>
           <div className="toggle-group">
             {(["system", "en", "zh"] as const).map((value) => (
               <button key={value} className={`toggle-btn${localeSetting === value ? " active" : ""}`} onClick={() => setLocaleSetting(value)}>
@@ -726,7 +733,7 @@ export default function App() {
         <StatsPanel stats={stats} onDuplicates={openDuplicates} onEmptyFolders={showClearEmptyModal} />
       </div>
 
-      {selectedIds.size > 0 && <div className="selection-bar">{tr(t.selection.count, { count: selectedIds.size })} — {t.selection.dropHint}</div>}
+
 
       <div className={`workspace${detail ? " has-details" : ""}`}>
         <div className="columns-container">
@@ -806,6 +813,7 @@ export default function App() {
         <BookmarkDetailsPanel detail={detail} onClose={() => setDetail(null)} onEdit={() => detail && setBookmarkEdit(detail.node)} />
       </div>
 
+      {selectedIds.size > 0 && <div className="selection-bar">{tr(t.selection.count, { count: selectedIds.size })} — {t.selection.dropHint}</div>}
       {showEmptyModal && <EmptyFolderModal emptyFolders={emptyFolders} onDelete={handleDeleteEmptyFolders} onClose={() => setShowEmptyModal(false)} />}
       {promptModal && <PromptModal title={promptModal.type === "createFolder" ? t.modal.prompt.newFolder : t.modal.prompt.rename} defaultValue={promptModal.type === "renameFolder" ? promptModal.title : ""} onSubmit={(value) => void handlePromptSubmit(value)} onCancel={() => setPromptModal(null)} />}
       {bookmarkEdit && <BookmarkEditModal title={bookmarkEdit.title} url={bookmarkEdit.url || ""} onSubmit={(value) => void handleEditBookmark(value)} onCancel={() => setBookmarkEdit(null)} />}

@@ -14,12 +14,12 @@ const zh: Translations = {
   header: {
     addColumn: "添加列",
     clearEmpty: "清理空文件夹",
-    deleteSelected: "删除 ({{count}})",
+    deleteSelected: "删除",
     moveTo: "移动到...",
     import: "导入",
     exportJson: "导出 JSON",
     exportHtml: "导出 HTML",
-    undo: "撤销 ({{count}})",
+    undo: "撤销",
     duplicates: "重复项",
     broken: "检查链接",
     trash: "回收站",
@@ -52,6 +52,7 @@ const zh: Translations = {
     folders: "文件夹",
     emptyFolders: "空文件夹",
     duplicates: "重复链接",
+    topDomains: "热门域名",
   },
   details: {
     title: "书签详情",
